@@ -6,6 +6,13 @@ import type { WebSocketClient } from '../types.js';
 import { SubscribeHandler } from './subscribe.js';
 
 // mocking
+const mocks = vi.hoisted(() => ({
+	bus: {
+		subscribe: vi.fn(),
+		unsubscribe: vi.fn(),
+	},
+}));
+
 vi.mock('../controllers', () => ({
 	getWebSocketController: vi.fn(() => ({
 		clients: new Set(),
@@ -24,6 +31,7 @@ vi.mock('../../services', () => ({
 }));
 
 vi.mock('../../database/index');
+vi.mock('../../bus/index', () => ({ useBus: () => mocks.bus }));
 
 function mockClient() {
 	return {
@@ -45,6 +53,9 @@ describe('WebSocket heartbeat handler', () => {
 	let handler: SubscribeHandler;
 
 	beforeEach(() => {
+		mocks.bus.subscribe.mockResolvedValue(undefined);
+		mocks.bus.unsubscribe.mockResolvedValue(undefined);
+
 		// initialize handler
 		handler = new SubscribeHandler();
 	});
@@ -65,6 +76,59 @@ describe('WebSocket heartbeat handler', () => {
 
 		// expect nothing
 		expect(spy).not.toBeCalled();
+	});
+
+	test('waits for in-flight message and bus dispatch work before closing', async () => {
+		let releaseMessage!: () => void;
+		let releaseDispatch!: () => void;
+
+		const onMessage = vi.spyOn(handler, 'onMessage').mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					releaseMessage = resolve;
+				}),
+		);
+
+		const dispatch = vi.spyOn(handler, 'dispatch').mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					releaseDispatch = resolve;
+				}),
+		);
+
+		await handler.initialize();
+		const busHandler = mocks.bus.subscribe.mock.calls[0]![1];
+
+		emitter.emitAction('websocket.message', {
+			client: mockClient(),
+			message: { type: 'subscribe', collection: 'test_collection' },
+		});
+
+		busHandler({ collection: 'test_collection', action: 'create', key: '1' });
+
+		await vi.waitFor(() => expect(onMessage).toHaveBeenCalledOnce());
+		await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
+
+		let closed = false;
+		const close = handler.close().then(() => (closed = true));
+		await Promise.resolve();
+		expect(closed).toBe(false);
+		expect(mocks.bus.unsubscribe).toHaveBeenCalledWith('websocket.event', busHandler);
+
+		emitter.emitAction('websocket.message', {
+			client: mockClient(),
+			message: { type: 'subscribe', collection: 'test_collection' },
+		});
+
+		busHandler({ collection: 'test_collection', action: 'create', key: '2' });
+		await emitter.drainActions();
+		expect(onMessage).toHaveBeenCalledOnce();
+		expect(dispatch).toHaveBeenCalledOnce();
+
+		releaseMessage();
+		releaseDispatch();
+		await close;
+		expect(closed).toBe(true);
 	});
 
 	test('should fail subscribe to non-existing collection', async () => {

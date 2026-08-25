@@ -65,6 +65,49 @@ describe('WebSocket heartbeat handler', () => {
 		expect(spy).not.toBeCalled();
 	});
 
+	test('waits for an in-flight item message before closing', async () => {
+		let releaseTask!: () => void;
+
+		const onMessage = vi.spyOn(handler, 'onMessage').mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					releaseTask = resolve;
+				}),
+		);
+
+		emitter.emitAction(
+			'websocket.message',
+			{
+				client: mockClient(),
+				message: { type: 'items', collection: 'test', action: 'read' },
+			},
+			{} as EventContext,
+		);
+
+		await vi.waitFor(() => expect(onMessage).toHaveBeenCalledOnce());
+
+		let closed = false;
+		const close = handler.close().then(() => (closed = true));
+		await Promise.resolve();
+		expect(closed).toBe(false);
+
+		emitter.emitAction(
+			'websocket.message',
+			{
+				client: mockClient(),
+				message: { type: 'items', collection: 'test', action: 'read' },
+			},
+			{} as EventContext,
+		);
+
+		await emitter.drainActions();
+		expect(onMessage).toHaveBeenCalledOnce();
+
+		releaseTask();
+		await close;
+		expect(closed).toBe(true);
+	});
+
 	test('invalid collection should error', async () => {
 		(getSchema as Mock).mockImplementation(() => ({ collections: {} }));
 		// receive message

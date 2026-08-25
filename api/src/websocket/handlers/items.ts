@@ -1,4 +1,5 @@
 import emitter from '../../emitter.js';
+import type { ActionHandler } from '@directus/types';
 import { ItemsService, MetaService } from '../../services/index.js';
 import { getSchema } from '../../utils/get-schema.js';
 import { isSystemCollection } from '@directus/system-data';
@@ -9,21 +10,46 @@ import type { WebSocketClient } from '../types.js';
 import { fmtMessage, getMessageType } from '../utils/message.js';
 
 export class ItemsHandler {
-	constructor() {
-		emitter.onAction('websocket.message', ({ client, message }) => {
-			if (getMessageType(message) !== 'items') return;
+	private closing = false;
+	private activeTasks = new Set<Promise<unknown>>();
+	private readonly handleMessage: ActionHandler = ({ client, message }) => {
+		if (this.closing) return;
+		if (getMessageType(message) !== 'items') return;
 
-			try {
-				const parsedMessage = WebSocketItemsMessage.parse(message);
+		try {
+			const parsedMessage = WebSocketItemsMessage.parse(message);
 
+			this.track(
 				this.onMessage(client, parsedMessage).catch((err) => {
 					// this catch is required because the async onMessage function is not awaited
 					handleWebSocketError(client, err, 'items');
-				});
-			} catch (err) {
-				handleWebSocketError(client, err, 'items');
-			}
-		});
+				}),
+			);
+		} catch (err) {
+			handleWebSocketError(client, err, 'items');
+		}
+	};
+
+	constructor() {
+		emitter.onAction('websocket.message', this.handleMessage);
+	}
+
+	async close(): Promise<void> {
+		this.closing = true;
+		emitter.offAction('websocket.message', this.handleMessage);
+		await Promise.allSettled([...this.activeTasks]);
+		this.activeTasks.clear();
+	}
+
+	private track<T>(task: Promise<T>): Promise<T> {
+		this.activeTasks.add(task);
+
+		task.then(
+			() => this.activeTasks.delete(task),
+			() => this.activeTasks.delete(task),
+		);
+
+		return task;
 	}
 
 	async onMessage(client: WebSocketClient, message: WebSocketItemsMessage) {

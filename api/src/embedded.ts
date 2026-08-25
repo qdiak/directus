@@ -1,14 +1,11 @@
 import type { Application } from 'express';
 import { isAbsolute, normalize } from 'node:path';
 import { createManagedApp, type ManagedApp } from './app.js';
-import { closeExtensionManager } from './extensions/index.js';
-import { closeFlowManager } from './flows.js';
 import { setLifecycleState } from './lifecycle.js';
-import { closeRuntimeResources } from './runtime/close-runtime-resources.js';
+import { closeManagedRuntime } from './runtime/close-managed-runtime.js';
 import { claimEmbeddedRuntime } from './runtime/embedded-ownership.js';
 import { ServerService } from './services/server.js';
 import { createBootstrapError, throwOnBootstrapFailure } from './utils/bootstrap-failure.js';
-import { closeResources } from './utils/close-resources.js';
 import { getSchema } from './utils/get-schema.js';
 
 export type EmbeddedDirectusOptions = {
@@ -86,11 +83,7 @@ async function closeEmbeddedRuntime(
 	setLifecycleState('closing');
 
 	try {
-		await closeResources([
-			{ name: 'extension manager', close: () => managers?.extensionManager.close() ?? closeExtensionManager() },
-			{ name: 'flow manager', close: () => managers?.flowManager.close() ?? closeFlowManager() },
-			{ name: 'runtime resources', close: closeRuntimeResources },
-		]);
+		await closeManagedRuntime(managers);
 	} finally {
 		setLifecycleState('closed');
 		release();

@@ -9,13 +9,57 @@ import type { Subscription } from '../../websocket/types.js';
 import type { WebSocketEvent } from '../../websocket/messages.js';
 
 const messages = createPubSub(new EventEmitter());
+let messenger: ReturnType<typeof useBus> | undefined;
+let binding: Promise<void> | undefined;
+let bound = false;
 
-export function bindPubSub() {
-	const messenger = useBus();
+const handleWebSocketEvent = (payload: unknown) => {
+	const message = payload as Record<string, any>;
+	messages.publish(`${message['collection']}_mutated`, message);
+};
 
-	messenger.subscribe('websocket.event', (message: Record<string, any>) => {
-		messages.publish(`${message['collection']}_mutated`, message);
-	});
+export async function bindPubSub(): Promise<void> {
+	if (bound) return;
+
+	const pendingBinding = (binding ??= (async () => {
+		messenger = useBus();
+		await messenger.subscribe('websocket.event', handleWebSocketEvent);
+		bound = true;
+	})());
+
+	try {
+		await pendingBinding;
+	} catch (error) {
+		if (binding === pendingBinding) binding = undefined;
+		messenger = undefined;
+		throw error;
+	}
+}
+
+export async function closePubSub(): Promise<void> {
+	const errors: unknown[] = [];
+
+	try {
+		await binding;
+	} catch (error) {
+		errors.push(error);
+	}
+
+	if (bound && messenger) {
+		try {
+			await messenger.unsubscribe('websocket.event', handleWebSocketEvent);
+		} catch (error) {
+			errors.push(error);
+		}
+	}
+
+	messenger = undefined;
+	binding = undefined;
+	bound = false;
+
+	if (errors.length > 0) {
+		throw new AggregateError(errors, 'Failed to close GraphQL WebSocket pub/sub');
+	}
 }
 
 export function createSubscriptionGenerator(self: GraphQLService, event: string) {

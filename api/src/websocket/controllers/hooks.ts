@@ -3,6 +3,7 @@ import emitter from '../../emitter.js';
 import type { WebSocketEvent } from '../messages.js';
 
 let actionsRegistered = false;
+let unregisterActions: Array<() => void> = [];
 
 export function registerWebSocketEvents() {
 	if (actionsRegistered) return;
@@ -32,6 +33,13 @@ export function registerWebSocketEvents() {
 	registerFilesHooks();
 	registerRelationsHooks();
 	registerSortHooks();
+}
+
+export function closeWebSocketEvents() {
+	for (const unregister of unregisterActions) unregister();
+
+	unregisterActions = [];
+	actionsRegistered = false;
 }
 
 function registerActionHooks(modules: string[]) {
@@ -149,8 +157,11 @@ function registerSortHooks() {
 function registerAction(event: string, transform: (args: Record<string, any>) => WebSocketEvent) {
 	const messenger = useBus();
 
-	emitter.onAction(event, (data: Record<string, any>) => {
+	const handler = (data: Record<string, any>) => {
 		// push the event through the Redis pub/sub
-		messenger.publish('websocket.event', transform(data) as Record<string, any>);
-	});
+		return messenger.publish('websocket.event', transform(data) as Record<string, any>);
+	};
+
+	emitter.onAction(event, handler);
+	unregisterActions.push(() => emitter.offAction(event, handler));
 }

@@ -14,15 +14,19 @@ import getDatabase from './database/index.js';
 import emitter from './emitter.js';
 import { setLifecycleState } from './lifecycle.js';
 import { useLogger } from './logger.js';
+import { closeManagedRuntime } from './runtime/close-managed-runtime.js';
+import { createBootstrapError } from './utils/bootstrap-failure.js';
+import { closeResources } from './utils/close-resources.js';
 import { getConfigFromEnv } from './utils/get-config-from-env.js';
 import { getIPFromReq } from './utils/get-ip-from-req.js';
 import {
 	createSubscriptionController,
 	createWebSocketController,
+	closeWebSocketControllers,
 	getSubscriptionController,
 	getWebSocketController,
 } from './websocket/controllers/index.js';
-import { startWebSocketHandlers } from './websocket/handlers/index.js';
+import { closeWebSocketHandlers, startWebSocketHandlers } from './websocket/handlers/index.js';
 
 export { SERVER_ONLINE } from './lifecycle.js';
 
@@ -97,10 +101,34 @@ export async function createServer(): Promise<http.Server> {
 	});
 
 	if (toBoolean(env['WEBSOCKETS_ENABLED']) === true) {
-		createSubscriptionController(server);
-		createWebSocketController(server);
-		startWebSocketHandlers();
+		try {
+			const subscriptionController = createSubscriptionController(server);
+			await subscriptionController?.initialize();
+			createWebSocketController(server);
+
+			if (getWebSocketController()) {
+				const handlers = startWebSocketHandlers();
+				await handlers[2].initialize();
+			}
+		} catch (error) {
+			setLifecycleState('failed');
+			const bootstrapError = createBootstrapError('Failed to initialize standalone WebSockets', error);
+
+			try {
+				await closeStandaloneResources();
+			} catch (closeError) {
+				throw new Error('Failed to initialize and roll back standalone WebSockets', {
+					cause: new AggregateError([bootstrapError, closeError], 'Standalone WebSocket bootstrap and rollback failed'),
+				});
+			} finally {
+				setLifecycleState('closed');
+			}
+
+			throw bootstrapError;
+		}
 	}
+
+	let shutdownPromise: Promise<void> | undefined;
 
 	const terminusOptions: TerminusOptions = {
 		timeout:
@@ -126,30 +154,63 @@ export async function createServer(): Promise<http.Server> {
 	}
 
 	async function onSignal() {
-		getSubscriptionController()?.terminate();
-		getWebSocketController()?.terminate();
-
-		const database = getDatabase();
-		await database.destroy();
-
-		logger.info('Database connections destroyed');
+		shutdownPromise ??= closeStandaloneServer(server);
+		await shutdownPromise;
 	}
 
 	async function onShutdown() {
-		emitter.emitAction(
-			'server.stop',
-			{ server },
-			{
-				database: getDatabase(),
-				schema: null,
-				accountability: null,
-			},
-		);
-
 		if (getNodeEnv() !== 'development') {
 			logger.info('Directus shut down OK. Bye bye!');
 		}
 	}
+}
+
+async function closeStandaloneServer(server: http.Server): Promise<void> {
+	setLifecycleState('closing');
+
+	try {
+		await closeStandaloneResources(server);
+		logger.info('Database connections destroyed');
+	} finally {
+		setLifecycleState('closed');
+	}
+}
+
+async function closeStandaloneResources(server?: http.Server): Promise<void> {
+	await closeResources([
+		{
+			name: 'WebSocket clients',
+			close: () => {
+				getSubscriptionController()?.terminate();
+				getWebSocketController()?.terminate();
+			},
+		},
+		{ name: 'active action handlers', close: () => emitter.drainActions() },
+		...(server
+			? [
+					{
+						name: 'server.stop action',
+						close: async () => {
+							await emitter.emitActionAsync(
+								'server.stop',
+								{ server },
+								{
+									database: getDatabase(),
+									schema: null,
+									accountability: null,
+								},
+							);
+
+							await emitter.drainActions();
+						},
+					},
+			  ]
+			: []),
+		{ name: 'WebSocket handlers', close: closeWebSocketHandlers },
+		{ name: 'WebSocket controllers', close: closeWebSocketControllers },
+		{ name: 'WebSocket close actions', close: () => emitter.drainActions() },
+		{ name: 'managed runtime', close: closeManagedRuntime },
+	]);
 }
 
 export async function startServer(): Promise<void> {

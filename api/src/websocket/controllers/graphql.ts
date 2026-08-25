@@ -4,7 +4,7 @@ import { CloseCode, MessageType, makeServer } from 'graphql-ws';
 import type { Server as httpServer } from 'http';
 import type { WebSocket } from 'ws';
 import { useLogger } from '../../logger.js';
-import { bindPubSub } from '../../services/graphql/subscription.js';
+import { bindPubSub, closePubSub } from '../../services/graphql/subscription.js';
 import { GraphQLService } from '../../services/index.js';
 import { getSchema } from '../../utils/get-schema.js';
 import { authenticateConnection, refreshAccountability } from '../authenticate.js';
@@ -42,8 +42,20 @@ export class GraphQLSubscriptionController extends SocketController {
 			},
 		});
 
-		bindPubSub();
 		logger.info(`GraphQL Subscriptions started at ws://${env['HOST']}:${env['PORT']}${this.endpoint}`);
+	}
+
+	async initialize(): Promise<void> {
+		await bindPubSub();
+	}
+
+	override async close(): Promise<void> {
+		const results = await Promise.allSettled([super.close(), closePubSub()]);
+		const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+
+		if (errors.length > 0) {
+			throw new AggregateError(errors, 'Failed to close GraphQL WebSocket controller');
+		}
 	}
 
 	private bindEvents(client: WebSocketClient) {

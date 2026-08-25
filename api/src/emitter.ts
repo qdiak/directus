@@ -7,6 +7,7 @@ export class Emitter {
 	private filterEmitter;
 	private actionEmitter;
 	private initEmitter;
+	private activeActionEmissions = new Set<Promise<void>>();
 
 	constructor() {
 		const emitterOptions = {
@@ -60,14 +61,36 @@ export class Emitter {
 	}
 
 	public emitAction(event: string | string[], meta: Record<string, any>, context: EventContext | null = null): void {
+		const emission = this.emitActionAsync(event, meta, context);
+		this.activeActionEmissions.add(emission);
+
+		emission.then(
+			() => this.activeActionEmissions.delete(emission),
+			() => this.activeActionEmissions.delete(emission),
+		);
+	}
+
+	public async emitActionAsync(
+		event: string | string[],
+		meta: Record<string, any>,
+		context: EventContext | null = null,
+	): Promise<void> {
 		const logger = useLogger();
 		const events = Array.isArray(event) ? event : [event];
 
-		for (const event of events) {
-			this.actionEmitter.emitAsync(event, { event, ...meta }, context ?? this.getDefaultContext()).catch((err) => {
-				logger.warn(`An error was thrown while executing action "${event}"`);
-				logger.warn(err);
-			});
+		await Promise.all(
+			events.map((event) =>
+				this.actionEmitter.emitAsync(event, { event, ...meta }, context ?? this.getDefaultContext()).catch((err) => {
+					logger.warn(`An error was thrown while executing action "${event}"`);
+					logger.warn(err);
+				}),
+			),
+		);
+	}
+
+	public async drainActions(): Promise<void> {
+		while (this.activeActionEmissions.size > 0) {
+			await Promise.allSettled([...this.activeActionEmissions]);
 		}
 	}
 

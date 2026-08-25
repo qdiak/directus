@@ -39,8 +39,13 @@ export default abstract class SocketController {
 	maxConnections: number;
 	private rateLimiter: RateLimiterAbstract | null;
 	private authInterval: NodeJS.Timeout | null;
+	private readonly httpServer: httpServer;
+	private readonly upgradeHandler: typeof this.handleUpgrade;
 
 	constructor(httpServer: httpServer, configPrefix: string) {
+		this.httpServer = httpServer;
+		this.upgradeHandler = this.handleUpgrade.bind(this);
+
 		this.server = new WebSocketServer({
 			noServer: true,
 			// @ts-ignore TODO Remove once @types/ws has been updated
@@ -56,7 +61,7 @@ export default abstract class SocketController {
 		this.maxConnections = maxConnections;
 		this.rateLimiter = this.getRateLimiter();
 
-		httpServer.on('upgrade', this.handleUpgrade.bind(this));
+		httpServer.on('upgrade', this.upgradeHandler);
 		this.checkClientTokens();
 		registerWebSocketEvents();
 	}
@@ -371,14 +376,38 @@ export default abstract class SocketController {
 	}
 
 	terminate() {
-		if (this.authInterval) clearInterval(this.authInterval);
+		if (this.authInterval) {
+			clearInterval(this.authInterval);
+			this.authInterval = null;
+		}
 
 		this.clients.forEach((client) => {
-			if (client.auth_timer) clearTimeout(client.auth_timer);
+			if (client.auth_timer) {
+				clearTimeout(client.auth_timer);
+				client.auth_timer = null;
+			}
 		});
 
 		this.server.clients.forEach((ws) => {
 			ws.terminate();
+		});
+
+		this.clients.clear();
+	}
+
+	async close(): Promise<void> {
+		this.httpServer.off('upgrade', this.upgradeHandler);
+		this.terminate();
+
+		await new Promise<void>((resolve, reject) => {
+			const handleError = (error: Error) => reject(error);
+
+			this.server.once('error', handleError);
+
+			this.server.close(() => {
+				this.server.off('error', handleError);
+				resolve();
+			});
 		});
 	}
 }

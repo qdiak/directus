@@ -1,5 +1,6 @@
 import { InvalidPayloadError } from '@directus/errors';
 import { type Bus } from '@directus/memory';
+import type { ActionHandler } from '@directus/types';
 import { useBus } from '../../bus/index.js';
 import emitter from '../../emitter.js';
 import { getSchema } from '../../utils/get-schema.js';
@@ -20,6 +21,36 @@ export class SubscribeHandler {
 	subscriptions: Record<string, Set<Subscription>>;
 	// internal message bus
 	protected messenger: Bus;
+	private busBinding: Promise<void> | undefined;
+	private closing = false;
+	private activeTasks = new Set<Promise<unknown>>();
+	private readonly handleBusMessage = (message: unknown) => {
+		if (this.closing) return;
+
+		this.track(
+			this.dispatch(message as WebSocketEvent).catch(() => {
+				// don't error on an invalid event from the messenger
+			}),
+		);
+	};
+
+	private readonly handleMessage: ActionHandler = ({ client, message }) => {
+		if (!['subscribe', 'unsubscribe'].includes(getMessageType(message))) return;
+
+		if (this.closing) return;
+
+		try {
+			this.track(
+				this.onMessage(client, WebSocketSubscribeMessage.parse(message)).catch((error) => {
+					handleWebSocketError(client, error, 'subscribe');
+				}),
+			);
+		} catch (error) {
+			handleWebSocketError(client, error, 'subscribe');
+		}
+	};
+
+	private readonly handleDisconnect: ActionHandler = ({ client }) => this.unsubscribe(client);
 	/**
 	 * Initialize the handler
 	 */
@@ -29,13 +60,13 @@ export class SubscribeHandler {
 		this.bindWebSocket();
 
 		// listen to the Redis pub/sub and dispatch
-		this.messenger.subscribe('websocket.event', (message: Record<string, any>) => {
-			try {
-				this.dispatch(message as WebSocketEvent);
-			} catch {
-				// don't error on an invalid event from the messenger
-			}
-		});
+	}
+
+	async initialize(): Promise<void> {
+		if (this.closing) throw new Error('WebSocket subscription handler is closing');
+
+		this.busBinding ??= this.messenger.subscribe('websocket.event', this.handleBusMessage);
+		await this.busBinding;
 	}
 
 	/**
@@ -43,19 +74,50 @@ export class SubscribeHandler {
 	 */
 	bindWebSocket() {
 		// listen to incoming messages on the connected websockets
-		emitter.onAction('websocket.message', ({ client, message }) => {
-			if (!['subscribe', 'unsubscribe'].includes(getMessageType(message))) return;
-
-			try {
-				this.onMessage(client, WebSocketSubscribeMessage.parse(message));
-			} catch (error) {
-				handleWebSocketError(client, error, 'subscribe');
-			}
-		});
+		emitter.onAction('websocket.message', this.handleMessage);
 
 		// unsubscribe when a connection drops
-		emitter.onAction('websocket.error', ({ client }) => this.unsubscribe(client));
-		emitter.onAction('websocket.close', ({ client }) => this.unsubscribe(client));
+		emitter.onAction('websocket.error', this.handleDisconnect);
+		emitter.onAction('websocket.close', this.handleDisconnect);
+	}
+
+	async close(): Promise<void> {
+		const errors: unknown[] = [];
+		this.closing = true;
+
+		emitter.offAction('websocket.message', this.handleMessage);
+		emitter.offAction('websocket.error', this.handleDisconnect);
+		emitter.offAction('websocket.close', this.handleDisconnect);
+
+		try {
+			await this.busBinding;
+
+			if (this.busBinding) {
+				await this.messenger.unsubscribe('websocket.event', this.handleBusMessage);
+			}
+		} catch (error) {
+			errors.push(error);
+		}
+
+		await Promise.allSettled([...this.activeTasks]);
+		this.activeTasks.clear();
+
+		this.subscriptions = {};
+
+		if (errors.length > 0) {
+			throw new AggregateError(errors, 'Failed to close WebSocket subscription handler');
+		}
+	}
+
+	private track<T>(task: Promise<T>): Promise<T> {
+		this.activeTasks.add(task);
+
+		task.then(
+			() => this.activeTasks.delete(task),
+			() => this.activeTasks.delete(task),
+		);
+
+		return task;
 	}
 
 	/**
