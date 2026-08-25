@@ -918,8 +918,8 @@ importers:
         specifier: 3.0.1
         version: 3.0.1(eslint@8.57.0)
       eslint-plugin-prettier:
-        specifier: npm:@paescuj/eslint-plugin-prettier@5.0.1-1
-        version: /@paescuj/eslint-plugin-prettier@5.0.1-1(eslint-config-prettier@9.1.0)(eslint@8.57.0)(prettier@3.1.0)
+        specifier: https://github.com/paescuj/eslint-plugin-prettier/archive/536487269852120a0895e71966641223cb96e765.tar.gz
+        version: '@github.com/paescuj/eslint-plugin-prettier/archive/536487269852120a0895e71966641223cb96e765.tar.gz(eslint-config-prettier@9.1.0)(eslint@8.57.0)(prettier@3.1.0)'
       eslint-plugin-react:
         specifier: 7.34.1
         version: 7.34.1(eslint@8.57.0)
@@ -1881,6 +1881,9 @@ importers:
       '@directus/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@types/node':
+        specifier: 18.19.26
+        version: 18.19.26
       knex:
         specifier: 3.1.0
         version: 3.1.0(mysql@2.18.1)(pg@8.11.4)(sqlite3@5.1.7)(tedious@17.0.0)
@@ -5866,8 +5869,11 @@ packages:
       '@otplib/plugin-thirty-two': 12.0.1
     dev: false
 
-  /@paescuj/eslint-plugin-prettier@5.0.1-1(eslint-config-prettier@9.1.0)(eslint@8.57.0)(prettier@3.1.0):
-    resolution: {integrity: sha512-gc+FaHyaGEnlcjN9n/bjXxa8CRxmkZRZTHkclaePXNgHSMIqgucFukE+4N1PYnSza2CnRijLjpRo8Z6UiGmNUA==}
+  '@github.com/paescuj/eslint-plugin-prettier/archive/536487269852120a0895e71966641223cb96e765.tar.gz(eslint-config-prettier@9.1.0)(eslint@8.57.0)(prettier@3.1.0)':
+    resolution: {tarball: https://github.com/paescuj/eslint-plugin-prettier/archive/536487269852120a0895e71966641223cb96e765.tar.gz}
+    id: '@github.com/paescuj/eslint-plugin-prettier/archive/536487269852120a0895e71966641223cb96e765.tar.gz'
+    name: '@paescuj/eslint-plugin-prettier'
+    version: 5.0.1-1
     engines: {node: ^14.18.0 || >=16.0.0}
     peerDependencies:
       '@types/eslint': '>=8.0.0'

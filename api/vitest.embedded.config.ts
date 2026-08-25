@@ -1,0 +1,46 @@
+import { defineConfig, mergeConfig } from 'vitest/config';
+import baseConfig from './vitest.config.js';
+
+export default mergeConfig(
+	baseConfig,
+	defineConfig({
+		test: {
+			include: [
+				'src/app.test.ts',
+				'src/auth/drivers/openid-initialization.test.ts',
+				'src/bus/lib/use-bus.test.ts',
+				'src/cache-lifecycle.test.ts',
+				'src/embedded.integration.test.ts',
+				'src/embedded.test.ts',
+				'src/emitter-lifecycle.test.ts',
+				'src/extensions/lib/get-extensions-path.test.ts',
+				'src/extensions/lib/get-extensions.test.ts',
+				'src/extensions/manager-lifecycle.test.ts',
+				'src/extensions/manager-path.test.ts',
+				'src/flows-lifecycle.test.ts',
+				'src/flows-schedule.test.ts',
+				'src/index.test.ts',
+				'src/lifecycle.test.ts',
+				'src/lock/lib/use-lock.test.ts',
+				'src/middleware/rate-limiter-initialization.test.ts',
+				'src/redis/lib/use-redis.test.ts',
+				'src/request/index.test.ts',
+				'src/server-lifecycle.test.ts',
+				'src/services/graphql/schema-cache.test.ts',
+				'src/services/server-lifecycle.test.ts',
+				'src/services/users-password-policy.test.ts',
+				'src/storage/index.test.ts',
+				'src/telemetry/lib/init-telemetry.test.ts',
+				'src/utils/bootstrap-failure.test.ts',
+				'src/utils/close-resources.test.ts',
+				'src/utils/get-schema.test.ts',
+				'src/utils/job-queue.test.ts',
+				'src/utils/validate-env.test.ts',
+				'src/websocket/controllers/hooks-lifecycle.test.ts',
+				'src/websocket/controllers/lifecycle.test.ts',
+				'src/websocket/handlers/items.test.ts',
+				'src/websocket/handlers/subscribe.test.ts',
+			],
+		},
+	}),
+);
