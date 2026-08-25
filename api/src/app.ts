@@ -50,7 +50,10 @@ import {
 } from './database/index.js';
 import emitter from './emitter.js';
 import { getExtensionManager } from './extensions/index.js';
+import type { ExtensionManager } from './extensions/manager.js';
+import type { ExtensionManagerOptions } from './extensions/types.js';
 import { getFlowManager } from './flows.js';
+import type { FlowManager } from './flows.js';
 import { setLifecycleState } from './lifecycle.js';
 import { createExpressLogger, useLogger } from './logger.js';
 import { initializeGraphqlSchemaCache } from './services/graphql/schema-cache.js';
@@ -66,6 +69,7 @@ import rateLimiter, { initializeRateLimiter } from './middleware/rate-limiter-ip
 import sanitizeQuery from './middleware/sanitize-query.js';
 import schema from './middleware/schema.js';
 import { initTelemetry } from './telemetry/index.js';
+import { assertNoEmbeddedRuntime } from './runtime/embedded-ownership.js';
 import { getConfigFromEnv } from './utils/get-config-from-env.js';
 import {
 	createBootstrapError,
@@ -83,26 +87,42 @@ export type CreateAppOptions = {
 	failureStrategy?: BootstrapFailureStrategy;
 };
 
+export type ManagedAppOptions = CreateAppOptions & {
+	extensions?: Pick<ExtensionManagerOptions, 'schedule' | 'watch'>;
+	flows?: {
+		schedule: boolean;
+	};
+	pressureLimiter?: boolean;
+	telemetry?: boolean;
+};
+
+export type ManagedApp = {
+	middleware: express.Application;
+	extensionManager: ExtensionManager;
+	flowManager: FlowManager;
+};
+
 export default async function createApp(options: CreateAppOptions = {}): Promise<express.Application> {
+	assertNoEmbeddedRuntime();
 	const failureStrategy = options.failureStrategy ?? exitOnBootstrapFailure;
 	setLifecycleState('starting');
 
 	try {
-		const app = await createAppInternal(options, failureStrategy);
+		const { middleware } = await createManagedApp(options, failureStrategy);
 
 		setLifecycleState('online');
 
-		return app;
+		return middleware;
 	} catch (error) {
 		setLifecycleState('failed');
 		return failureStrategy(createBootstrapError('Failed to bootstrap Directus', error));
 	}
 }
 
-async function createAppInternal(
-	options: CreateAppOptions,
+export async function createManagedApp(
+	options: ManagedAppOptions,
 	failureStrategy: BootstrapFailureStrategy,
-): Promise<express.Application> {
+): Promise<ManagedApp> {
 	const env = useEnv();
 	const logger = useLogger();
 	const helmet = await import('helmet');
@@ -136,8 +156,8 @@ async function createAppInternal(
 	const extensionManager = getExtensionManager();
 	const flowManager = getFlowManager();
 
-	await extensionManager.initialize({ ...extensionOptions, failureStrategy });
-	await flowManager.initialize();
+	await extensionManager.initialize({ ...options.extensions, ...extensionOptions, failureStrategy });
+	await flowManager.initialize(options.flows);
 
 	const app = express();
 
@@ -145,7 +165,7 @@ async function createAppInternal(
 	app.set('trust proxy', env['IP_TRUST_PROXY']);
 	app.set('query parser', (str: string) => qs.parse(str, { depth: 10 }));
 
-	if (env['PRESSURE_LIMITER_ENABLED']) {
+	if (env['PRESSURE_LIMITER_ENABLED'] && options.pressureLimiter !== false) {
 		const sampleInterval = Number(env['PRESSURE_LIMITER_SAMPLE_INTERVAL']);
 
 		if (Number.isNaN(sampleInterval) === true || Number.isFinite(sampleInterval) === false) {
@@ -349,9 +369,11 @@ async function createAppInternal(
 
 	await emitter.emitInit('routes.after', { app });
 
-	await initTelemetry();
+	if (options.telemetry !== false) {
+		await initTelemetry();
+	}
 
 	await emitter.emitInit('app.after', { app });
 
-	return app;
+	return { middleware: app, extensionManager, flowManager };
 }

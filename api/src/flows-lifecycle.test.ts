@@ -59,4 +59,41 @@ describe('FlowManager lifecycle', () => {
 
 		await second.close();
 	});
+
+	it('unloads partially registered handlers after initialization fails', async () => {
+		const manager = new FlowManager();
+		const stop = vi.fn();
+
+		vi.spyOn(manager as any, 'load').mockImplementation(async () => {
+			(manager as any).triggerHandlers.push({
+				id: 'partial-schedule',
+				events: [{ type: 'schedule', job: { stop } }],
+			});
+
+			throw new Error('flow bootstrap failed');
+		});
+
+		await expect(manager.initialize({ schedule: false })).rejects.toThrow('flow bootstrap failed');
+		await manager.close();
+
+		expect(stop).toHaveBeenCalledOnce();
+	});
+
+	it('attempts every trigger disposer when one fails', async () => {
+		const manager = new FlowManager();
+		const firstStop = vi.fn().mockRejectedValue(new Error('first stop failed'));
+		const secondStop = vi.fn();
+
+		(manager as any).triggerHandlers.push({
+			id: 'schedules',
+			events: [
+				{ type: 'schedule', job: { stop: firstStop } },
+				{ type: 'schedule', job: { stop: secondStop } },
+			],
+		});
+
+		await expect(manager.close()).rejects.toThrow('Failed to close flow manager');
+		expect(firstStop).toHaveBeenCalledOnce();
+		expect(secondStop).toHaveBeenCalledOnce();
+	});
 });

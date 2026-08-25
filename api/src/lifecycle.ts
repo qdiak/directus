@@ -1,6 +1,6 @@
 export type LifecycleState = 'starting' | 'online' | 'closing' | 'closed' | 'failed';
 
-let lifecycleState: LifecycleState = 'starting';
+let lifecycleState: LifecycleState = 'closed';
 
 export let SERVER_ONLINE = false;
 

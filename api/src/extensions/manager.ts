@@ -250,7 +250,7 @@ export class ExtensionManager {
 		}
 
 		if (this.messengerSubscribed === false) {
-			this.messenger.subscribe(this.reloadChannel, this.handleReloadMessage);
+			await this.messenger.subscribe(this.reloadChannel, this.handleReloadMessage);
 			this.messengerSubscribed = true;
 		}
 	}
@@ -466,8 +466,13 @@ export class ExtensionManager {
 		const errors: unknown[] = [];
 
 		if (this.messengerSubscribed) {
-			this.messenger.unsubscribe(this.reloadChannel, this.handleReloadMessage);
-			this.messengerSubscribed = false;
+			try {
+				await this.messenger.unsubscribe(this.reloadChannel, this.handleReloadMessage);
+			} catch (error) {
+				errors.push(error);
+			} finally {
+				this.messengerSubscribed = false;
+			}
 		}
 
 		for (const close of [
@@ -896,14 +901,14 @@ export class ExtensionManager {
 				});
 			},
 			schedule: (cron: string, handler: ScheduleHandler) => {
+				if (!this.options.schedule) return;
+
 				if (validateCron(cron)) {
 					const job = scheduleSynchronizedJob(`${name}:${scheduleIndex}`, cron, async () => {
-						if (this.options.schedule) {
-							try {
-								await handler();
-							} catch (error) {
-								logger.error(error);
-							}
+						try {
+							await handler();
+						} catch (error) {
+							logger.error(error);
 						}
 					});
 
@@ -1007,7 +1012,12 @@ export class ExtensionManager {
 		const unregisterFunctions = Array.from(this.unregisterFunctionMap.values());
 
 		try {
-			await Promise.all(unregisterFunctions.map((fn) => fn()));
+			const results = await Promise.allSettled(unregisterFunctions.map((fn) => fn()));
+			const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+
+			if (errors.length > 0) {
+				throw new AggregateError(errors, 'Failed to unregister API extensions');
+			}
 		} finally {
 			this.unregisterFunctionMap.clear();
 		}

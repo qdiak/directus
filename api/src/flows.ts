@@ -63,6 +63,7 @@ export class FlowManager {
 	private closing = false;
 	private closed = false;
 	private closePromise: Promise<void> | undefined;
+	private scheduleEnabled: boolean | undefined;
 
 	private operations: Map<string, OperationHandler> = new Map();
 
@@ -99,17 +100,25 @@ export class FlowManager {
 		this.envs = env['FLOWS_ENV_ALLOW_LIST'] ? pick(env, toArray(env['FLOWS_ENV_ALLOW_LIST'] as string)) : {};
 	}
 
-	public async initialize(): Promise<void> {
+	public async initialize(options: { schedule?: boolean } = {}): Promise<void> {
 		if (this.closing || this.closed) {
 			throw new Error('Flow manager is closed');
 		}
+
+		const scheduleEnabled = options.schedule ?? true;
+
+		if (this.scheduleEnabled !== undefined && this.scheduleEnabled !== scheduleEnabled) {
+			throw new Error('Flow manager is already configured with a different schedule option');
+		}
+
+		this.scheduleEnabled = scheduleEnabled;
 
 		if (!this.isLoaded) {
 			await this.load();
 		}
 
 		if (this.messengerSubscribed === false) {
-			this.messenger.subscribe<FlowMessage>('flows', this.handleFlowMessage);
+			await this.messenger.subscribe<FlowMessage>('flows', this.handleFlowMessage);
 			this.messengerSubscribed = true;
 		}
 	}
@@ -235,7 +244,7 @@ export class FlowManager {
 						events: events.map((event) => ({ type: 'action', name: event, handler })),
 					});
 				}
-			} else if (flow.trigger === 'schedule') {
+			} else if (flow.trigger === 'schedule' && this.scheduleEnabled) {
 				if (validateCron(flow.options['cron'])) {
 					const job = scheduleSynchronizedJob(flow.id, flow.options['cron'], async () => {
 						try {
@@ -314,18 +323,24 @@ export class FlowManager {
 	}
 
 	private async unload(): Promise<void> {
+		const errors: unknown[] = [];
+
 		for (const trigger of this.triggerHandlers) {
 			for (const event of trigger.events) {
-				switch (event.type) {
-					case 'filter':
-						emitter.offFilter(event.name, event.handler);
-						break;
-					case 'action':
-						emitter.offAction(event.name, event.handler);
-						break;
-					case 'schedule':
-						await event.job.stop();
-						break;
+				try {
+					switch (event.type) {
+						case 'filter':
+							emitter.offFilter(event.name, event.handler);
+							break;
+						case 'action':
+							emitter.offAction(event.name, event.handler);
+							break;
+						case 'schedule':
+							await event.job.stop();
+							break;
+					}
+				} catch (error) {
+					errors.push(error);
 				}
 			}
 		}
@@ -335,6 +350,10 @@ export class FlowManager {
 		this.webhookFlowHandlers = {};
 
 		this.isLoaded = false;
+
+		if (errors.length > 0) {
+			throw new AggregateError(errors, 'Failed to unload flow triggers');
+		}
 	}
 
 	public close(): Promise<void> {
@@ -349,8 +368,13 @@ export class FlowManager {
 		const errors: unknown[] = [];
 
 		if (this.messengerSubscribed) {
-			this.messenger.unsubscribe('flows', this.handleFlowMessage);
-			this.messengerSubscribed = false;
+			try {
+				await this.messenger.unsubscribe('flows', this.handleFlowMessage);
+			} catch (error) {
+				errors.push(error);
+			} finally {
+				this.messengerSubscribed = false;
+			}
 		}
 
 		try {
@@ -359,12 +383,10 @@ export class FlowManager {
 			errors.push(error);
 		}
 
-		if (this.isLoaded) {
-			try {
-				await this.unload();
-			} catch (error) {
-				errors.push(error);
-			}
+		try {
+			await this.unload();
+		} catch (error) {
+			errors.push(error);
 		}
 
 		await Promise.allSettled([...this.activeExecutions]);

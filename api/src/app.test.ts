@@ -3,8 +3,9 @@ import { Router } from 'express';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import createApp from './app.js';
+import createApp, { createManagedApp } from './app.js';
 import { validateMigrations } from './database/index.js';
+import { initTelemetry } from './telemetry/index.js';
 import { throwOnBootstrapFailure } from './utils/bootstrap-failure.js';
 import { validateStorage } from './utils/validate-storage.js';
 
@@ -32,6 +33,7 @@ vi.mock('@directus/env', () => ({
 const mockGetEndpointRouter = vi.fn().mockReturnValue(Router());
 const mockGetEmbeds = vi.fn().mockReturnValue({ head: '', body: '' });
 const mockExtensionManagerInitialize = vi.fn();
+const mockFlowManagerInitialize = vi.fn();
 
 vi.mock('./extensions', () => ({
 	getExtensionManager: vi.fn().mockImplementation(() => {
@@ -46,7 +48,7 @@ vi.mock('./extensions', () => ({
 vi.mock('./flows', () => ({
 	getFlowManager: vi.fn().mockImplementation(() => {
 		return {
-			initialize: vi.fn(),
+			initialize: mockFlowManagerInitialize,
 		};
 	}),
 }));
@@ -123,6 +125,29 @@ describe('createApp', async () => {
 			extensionsPath,
 			failureStrategy: expect.any(Function),
 		});
+	});
+
+	test('supports a schedule-free managed bootstrap without telemetry', async () => {
+		await createManagedApp(
+			{
+				extensionsPath: '/app/extensions',
+				extensions: { schedule: false, watch: false },
+				flows: { schedule: false },
+				pressureLimiter: false,
+				telemetry: false,
+			},
+			throwOnBootstrapFailure,
+		);
+
+		expect(mockExtensionManagerInitialize).toHaveBeenCalledWith({
+			extensionsPath: '/app/extensions',
+			failureStrategy: throwOnBootstrapFailure,
+			schedule: false,
+			watch: false,
+		});
+
+		expect(mockFlowManagerInitialize).toHaveBeenCalledWith({ schedule: false });
+		expect(initTelemetry).not.toHaveBeenCalled();
 	});
 
 	test('preserves bootstrap causes when configured to throw', async () => {
