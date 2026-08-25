@@ -7,7 +7,15 @@ export function getExtensionManager(): ExtensionManager {
 		return extensionManager;
 	}
 
-	extensionManager = new ExtensionManager();
+	const manager = new ExtensionManager(() => {
+		if (extensionManager === manager) extensionManager = undefined;
+	});
+
+	extensionManager = manager;
 
 	return extensionManager;
+}
+
+export async function closeExtensionManager(): Promise<void> {
+	await extensionManager?.close();
 }

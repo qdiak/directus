@@ -16,3 +16,9 @@ export function getInstallationManager(extensionsPath = getExtensionsPath()): In
 
 	return manager;
 }
+
+export function resetInstallationManager(instance?: InstallationManager): void {
+	if (instance === undefined || manager === instance) {
+		manager = undefined;
+	}
+}

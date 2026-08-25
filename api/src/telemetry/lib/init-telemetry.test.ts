@@ -2,7 +2,7 @@ import { useEnv } from '@directus/env';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { getCache } from '../../cache.js';
 import { scheduleSynchronizedJob } from '../../utils/schedule.js';
-import { initTelemetry, jobCallback } from './init-telemetry.js';
+import { closeTelemetry, initTelemetry, jobCallback } from './init-telemetry.js';
 import { track } from './track.js';
 
 vi.mock('./track.js');
@@ -15,15 +15,18 @@ vi.mock('@directus/env', () => ({ useEnv: vi.fn().mockReturnValue({}) }));
 vi.mock('../../utils/schedule.js');
 
 let mockCache: ReturnType<typeof getCache>;
+const stopTelemetry = vi.fn();
 
 beforeEach(() => {
 	mockCache = { lockCache: { get: vi.fn(), set: vi.fn() } } as unknown as ReturnType<typeof getCache>;
 
 	vi.mocked(getCache).mockReturnValue(mockCache);
 	vi.mocked(useEnv).mockReturnValue({ TELEMETRY: true });
+	vi.mocked(scheduleSynchronizedJob).mockReturnValue({ stop: stopTelemetry });
 });
 
-afterEach(() => {
+afterEach(async () => {
+	await closeTelemetry();
 	vi.clearAllMocks();
 });
 
@@ -53,6 +56,18 @@ describe('initTelemetry', () => {
 	test('Returns true on successful init', async () => {
 		const res = await initTelemetry();
 		expect(res).toBe(true);
+	});
+
+	test('Schedules only once and closes the schedule idempotently', async () => {
+		await initTelemetry();
+		await initTelemetry();
+
+		expect(scheduleSynchronizedJob).toHaveBeenCalledTimes(1);
+
+		await closeTelemetry();
+		await closeTelemetry();
+
+		expect(stopTelemetry).toHaveBeenCalledTimes(1);
 	});
 });
 

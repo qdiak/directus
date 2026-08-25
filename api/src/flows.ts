@@ -31,9 +31,17 @@ export function getFlowManager(): FlowManager {
 		return flowManager;
 	}
 
-	flowManager = new FlowManager();
+	const manager = new FlowManager(() => {
+		if (flowManager === manager) flowManager = undefined;
+	});
+
+	flowManager = manager;
 
 	return flowManager;
+}
+
+export async function closeFlowManager(): Promise<void> {
+	await flowManager?.close();
 }
 
 type TriggerHandler = {
@@ -50,8 +58,11 @@ interface FlowMessage {
 	type: 'reload';
 }
 
-class FlowManager {
+export class FlowManager {
 	private isLoaded = false;
+	private closing = false;
+	private closed = false;
+	private closePromise: Promise<void> | undefined;
 
 	private operations: Map<string, OperationHandler> = new Map();
 
@@ -61,43 +72,61 @@ class FlowManager {
 
 	private reloadQueue: JobQueue;
 	private envs: Record<string, any>;
+	private activeExecutions = new Set<Promise<unknown>>();
+	private messenger = useBus();
+	private messengerSubscribed = false;
 
-	constructor() {
+	private handleFlowMessage = (event: unknown) => {
+		if (typeof event !== 'object' || event === null || !('type' in event) || event['type'] !== 'reload') return;
+		if (this.closing || this.closed) return;
+
+		void this.reloadQueue
+			.enqueue(async () => {
+				if (this.isLoaded) {
+					await this.unload();
+					await this.load();
+				} else {
+					useLogger().warn('Flows have to be loaded before they can be reloaded');
+				}
+			})
+			.catch((error) => useLogger().warn(error));
+	};
+
+	constructor(private readonly onClose?: () => void) {
 		const env = useEnv();
-		const logger = useLogger();
 
 		this.reloadQueue = new JobQueue();
 		this.envs = env['FLOWS_ENV_ALLOW_LIST'] ? pick(env, toArray(env['FLOWS_ENV_ALLOW_LIST'] as string)) : {};
-
-		const messenger = useBus();
-
-		messenger.subscribe<FlowMessage>('flows', (event) => {
-			if (event['type'] === 'reload') {
-				this.reloadQueue.enqueue(async () => {
-					if (this.isLoaded) {
-						await this.unload();
-						await this.load();
-					} else {
-						logger.warn('Flows have to be loaded before they can be reloaded');
-					}
-				});
-			}
-		});
 	}
 
 	public async initialize(): Promise<void> {
+		if (this.closing || this.closed) {
+			throw new Error('Flow manager is closed');
+		}
+
 		if (!this.isLoaded) {
 			await this.load();
+		}
+
+		if (this.messengerSubscribed === false) {
+			this.messenger.subscribe<FlowMessage>('flows', this.handleFlowMessage);
+			this.messengerSubscribed = true;
 		}
 	}
 
 	public async reload(): Promise<void> {
-		const messenger = useBus();
+		if (this.closing || this.closed) {
+			throw new Error('Flow manager is closed');
+		}
 
-		messenger.publish<FlowMessage>('flows', { type: 'reload' });
+		await this.messenger.publish<FlowMessage>('flows', { type: 'reload' });
 	}
 
 	public addOperation(id: string, operation: OperationHandler): void {
+		if (this.closing || this.closed) {
+			throw new Error('Flow manager is closed');
+		}
+
 		this.operations.set(id, operation);
 	}
 
@@ -235,7 +264,7 @@ class FlowManager {
 					}
 
 					if (flow.options['async']) {
-						this.executeFlow(flow, data, context);
+						void this.executeFlow(flow, data, context).catch((error) => logger.error(error));
 						return { result: undefined, cacheEnabled };
 					} else {
 						return { result: await this.executeFlow(flow, data, context), cacheEnabled };
@@ -267,7 +296,7 @@ class FlowManager {
 					}
 
 					if (flow.options['async']) {
-						this.executeFlow(flow, data, context);
+						void this.executeFlow(flow, data, context).catch((error) => logger.error(error));
 						return { result: undefined };
 					} else {
 						return { result: await this.executeFlow(flow, data, context) };
@@ -308,7 +337,72 @@ class FlowManager {
 		this.isLoaded = false;
 	}
 
-	private async executeFlow(flow: Flow, data: unknown = null, context: Record<string, unknown> = {}): Promise<unknown> {
+	public close(): Promise<void> {
+		this.closePromise ??= this.performClose();
+		return this.closePromise;
+	}
+
+	private async performClose(): Promise<void> {
+		if (this.closed) return;
+
+		this.closing = true;
+		const errors: unknown[] = [];
+
+		if (this.messengerSubscribed) {
+			this.messenger.unsubscribe('flows', this.handleFlowMessage);
+			this.messengerSubscribed = false;
+		}
+
+		try {
+			await this.reloadQueue.close();
+		} catch (error) {
+			errors.push(error);
+		}
+
+		if (this.isLoaded) {
+			try {
+				await this.unload();
+			} catch (error) {
+				errors.push(error);
+			}
+		}
+
+		await Promise.allSettled([...this.activeExecutions]);
+
+		this.operations.clear();
+		this.triggerHandlers = [];
+		this.operationFlowHandlers = {};
+		this.webhookFlowHandlers = {};
+		this.closed = true;
+		this.closing = false;
+		this.onClose?.();
+
+		if (errors.length > 0) {
+			throw new AggregateError(errors, 'Failed to close flow manager');
+		}
+	}
+
+	private executeFlow(flow: Flow, data: unknown = null, context: Record<string, unknown> = {}): Promise<unknown> {
+		if (this.closing || this.closed) {
+			return Promise.reject(new Error('Flow manager is closed'));
+		}
+
+		const execution = this.executeFlowInternal(flow, data, context);
+		this.activeExecutions.add(execution);
+
+		execution.then(
+			() => this.activeExecutions.delete(execution),
+			() => this.activeExecutions.delete(execution),
+		);
+
+		return execution;
+	}
+
+	private async executeFlowInternal(
+		flow: Flow,
+		data: unknown = null,
+		context: Record<string, unknown> = {},
+	): Promise<unknown> {
 		const database = (context['database'] as Knex) ?? getDatabase();
 		const schema = (context['schema'] as SchemaOverview) ?? (await getSchema({ database }));
 

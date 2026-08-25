@@ -12,6 +12,7 @@ import url from 'url';
 import createApp from './app.js';
 import getDatabase from './database/index.js';
 import emitter from './emitter.js';
+import { setLifecycleState } from './lifecycle.js';
 import { useLogger } from './logger.js';
 import { getConfigFromEnv } from './utils/get-config-from-env.js';
 import { getIPFromReq } from './utils/get-ip-from-req.js';
@@ -23,7 +24,7 @@ import {
 } from './websocket/controllers/index.js';
 import { startWebSocketHandlers } from './websocket/handlers/index.js';
 
-export let SERVER_ONLINE = true;
+export { SERVER_ONLINE } from './lifecycle.js';
 
 const env = useEnv();
 const logger = useLogger();
@@ -121,7 +122,7 @@ export async function createServer(): Promise<http.Server> {
 			logger.info('Shutting down...');
 		}
 
-		SERVER_ONLINE = false;
+		setLifecycleState('closing');
 	}
 
 	async function onSignal() {

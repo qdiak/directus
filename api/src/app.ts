@@ -50,6 +50,7 @@ import {
 import emitter from './emitter.js';
 import { getExtensionManager } from './extensions/index.js';
 import { getFlowManager } from './flows.js';
+import { setLifecycleState } from './lifecycle.js';
 import { createExpressLogger, useLogger } from './logger.js';
 import authenticate from './middleware/authenticate.js';
 import cache from './middleware/cache.js';
@@ -82,10 +83,16 @@ export type CreateAppOptions = {
 
 export default async function createApp(options: CreateAppOptions = {}): Promise<express.Application> {
 	const failureStrategy = options.failureStrategy ?? exitOnBootstrapFailure;
+	setLifecycleState('starting');
 
 	try {
-		return await createAppInternal(options, failureStrategy);
+		const app = await createAppInternal(options, failureStrategy);
+
+		setLifecycleState('online');
+
+		return app;
 	} catch (error) {
+		setLifecycleState('failed');
 		return failureStrategy(createBootstrapError('Failed to bootstrap Directus', error));
 	}
 }
@@ -338,7 +345,7 @@ async function createAppInternal(
 
 	await emitter.emitInit('routes.after', { app });
 
-	initTelemetry();
+	await initTelemetry();
 
 	await emitter.emitInit('app.after', { app });
 

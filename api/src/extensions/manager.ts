@@ -50,7 +50,7 @@ import { getExtensionsPath } from './lib/get-extensions-path.js';
 import { getExtensionsSettings } from './lib/get-extensions-settings.js';
 import { getExtensions } from './lib/get-extensions.js';
 import { getSharedDepsMapping } from './lib/get-shared-deps-mapping.js';
-import { getInstallationManager } from './lib/installation/index.js';
+import { getInstallationManager, resetInstallationManager } from './lib/installation/index.js';
 import type { InstallationManager } from './lib/installation/manager.js';
 import { generateApiExtensionsSandboxEntrypoint } from './lib/sandbox/generate-api-extensions-sandbox-entrypoint.js';
 import { instantiateSandboxSdk } from './lib/sandbox/sdk/instantiate.js';
@@ -140,6 +140,9 @@ export class ExtensionManager {
 	 * sequence.
 	 */
 	private reloadQueue: JobQueue = new JobQueue();
+	private closing = false;
+	private closed = false;
+	private closePromise: Promise<void> | undefined;
 
 	/**
 	 * Optional file system watcher to auto-reload extensions when the local file system changes
@@ -155,6 +158,7 @@ export class ExtensionManager {
 	private extensionsPath: string | undefined;
 
 	private messenger = useBus();
+	private messengerSubscribed = false;
 
 	/**
 	 * channel to publish on registering extension from external registry
@@ -162,6 +166,23 @@ export class ExtensionManager {
 	private reloadChannel = `extensions.reload`;
 
 	private processId = processId();
+
+	private handleReloadMessage = (payload: unknown) => {
+		if (this.closing || this.closed) return;
+		if (!isPlainObject(payload)) return;
+		const message = payload as Record<string, unknown>;
+
+		// Ignore requests for reloading that were published by the current process
+		if ('origin' in message && message['origin'] === this.processId) return;
+
+		void this.reload().catch((error) => useLogger().warn(error));
+	};
+
+	constructor(private readonly onClose?: () => void) {}
+
+	public get isClosed(): boolean {
+		return this.closed;
+	}
 
 	public get extensions() {
 		return [...this.localExtensions.values(), ...this.registryExtensions.values(), ...this.moduleExtensions.values()];
@@ -188,6 +209,10 @@ export class ExtensionManager {
 	 * @param {boolean} options.watch - Whether or not to watch the local extensions folder for changes
 	 */
 	public async initialize(options: Partial<ExtensionManagerOptions> = {}): Promise<void> {
+		if (this.closing || this.closed) {
+			throw new Error('Extension manager is closed');
+		}
+
 		const logger = useLogger();
 		const extensionsPath = getExtensionsPath(options.extensionsPath);
 
@@ -224,11 +249,10 @@ export class ExtensionManager {
 			this.updateWatchedExtensions(Array.from(this.localExtensions.values()));
 		}
 
-		this.messenger.subscribe(this.reloadChannel, (payload: Record<string, unknown>) => {
-			// Ignore requests for reloading that were published by the current process
-			if (isPlainObject(payload) && 'origin' in payload && payload['origin'] === this.processId) return;
-			this.reload();
-		});
+		if (this.messengerSubscribed === false) {
+			this.messenger.subscribe(this.reloadChannel, this.handleReloadMessage);
+			this.messengerSubscribed = true;
+		}
 	}
 
 	/**
@@ -294,6 +318,9 @@ export class ExtensionManager {
 		this.localEmitter.offAll();
 
 		this.appExtensionsBundle = null;
+		this.appExtensionChunks.clear();
+		this.hookEmbedsHead = [];
+		this.hookEmbedsBody = [];
 
 		this.isLoaded = false;
 	}
@@ -302,6 +329,10 @@ export class ExtensionManager {
 	 * Reload all the extensions. Will unload if extensions have already been loaded
 	 */
 	public reload(options?: { forceSync: boolean }): Promise<unknown> {
+		if (this.closing || this.closed) {
+			return Promise.reject(new Error('Extension manager is closed'));
+		}
+
 		if (this.reloadQueue.size > 0) {
 			// The pending job in the queue will already handle the additional changes
 			return Promise.resolve();
@@ -309,15 +340,7 @@ export class ExtensionManager {
 
 		const logger = useLogger();
 
-		let resolve: (val?: unknown) => void;
-		let reject: (val?: unknown) => void;
-
-		const promise = new Promise((res, rej) => {
-			resolve = res;
-			reject = rej;
-		});
-
-		this.reloadQueue.enqueue(async () => {
+		return this.reloadQueue.enqueue(async () => {
 			if (this.isLoaded) {
 				const prevExtensions = clone(this.extensions);
 
@@ -346,15 +369,11 @@ export class ExtensionManager {
 				if (removedExtensions.length > 0) {
 					logger.info(`Removed extensions: ${removedExtensions.join(', ')}`);
 				}
-
-				resolve();
 			} else {
 				logger.warn('Extensions have to be loaded before they can be reloaded');
-				reject(new Error('Extensions have to be loaded before they can be reloaded'));
+				throw new Error('Extensions have to be loaded before they can be reloaded');
 			}
 		});
-
-		return promise;
 	}
 
 	/**
@@ -432,6 +451,58 @@ export class ExtensionManager {
 			await this.watcher.close();
 
 			this.watcher = null;
+		}
+	}
+
+	public close(): Promise<void> {
+		this.closePromise ??= this.performClose();
+		return this.closePromise;
+	}
+
+	private async performClose(): Promise<void> {
+		if (this.closed) return;
+
+		this.closing = true;
+		const errors: unknown[] = [];
+
+		if (this.messengerSubscribed) {
+			this.messenger.unsubscribe(this.reloadChannel, this.handleReloadMessage);
+			this.messengerSubscribed = false;
+		}
+
+		for (const close of [
+			() => this.reloadQueue.close(),
+			() => this.closeWatcher(),
+			() => (this.isLoaded || this.unregisterFunctionMap.size > 0 ? this.unload() : Promise.resolve()),
+		]) {
+			try {
+				await close();
+			} catch (error) {
+				errors.push(error);
+			}
+		}
+
+		this.localExtensions.clear();
+		this.registryExtensions.clear();
+		this.moduleExtensions.clear();
+		this.extensionsSettings = [];
+		this.unregisterFunctionMap.clear();
+		this.appExtensionsBundle = null;
+		this.appExtensionChunks.clear();
+		this.hookEmbedsHead = [];
+		this.hookEmbedsBody = [];
+		this.localEmitter.offAll();
+		this.endpointRouter.stack = [];
+
+		resetInstallationManager(this.installationManager);
+		this.installationManager = undefined;
+		this.extensionsPath = undefined;
+		this.closed = true;
+		this.closing = false;
+		this.onClose?.();
+
+		if (errors.length > 0) {
+			throw new AggregateError(errors, 'Failed to close extension manager');
 		}
 	}
 
@@ -935,7 +1006,11 @@ export class ExtensionManager {
 	private async unregisterApiExtensions(): Promise<void> {
 		const unregisterFunctions = Array.from(this.unregisterFunctionMap.values());
 
-		await Promise.all(unregisterFunctions.map((fn) => fn()));
+		try {
+			await Promise.all(unregisterFunctions.map((fn) => fn()));
+		} finally {
+			this.unregisterFunctionMap.clear();
+		}
 	}
 
 	/**

@@ -8,11 +8,11 @@ import { Readable } from 'node:stream';
 import { performance } from 'perf_hooks';
 import { getCache } from '../cache.js';
 import getDatabase, { hasDatabaseConnection } from '../database/index.js';
+import { getLifecycleState } from '../lifecycle.js';
 import { useLogger } from '../logger.js';
 import getMailer from '../mailer.js';
 import { rateLimiterGlobal } from '../middleware/rate-limiter-global.js';
 import { rateLimiter } from '../middleware/rate-limiter-ip.js';
-import { SERVER_ONLINE } from '../server.js';
 import { getStorage } from '../storage/index.js';
 import type { AbstractServiceOptions } from '../types/index.js';
 import { SettingsService } from './settings.js';
@@ -157,7 +157,7 @@ export class ServerService {
 			),
 		};
 
-		if (SERVER_ONLINE === false) {
+		if (getLifecycleState() !== 'online') {
 			data.status = 'error';
 		}
 
