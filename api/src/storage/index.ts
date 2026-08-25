@@ -23,3 +23,7 @@ export const getStorage = async (): Promise<StorageManager> => {
 
 	return storage;
 };
+
+export const closeStorage = async (): Promise<void> => {
+	_cache.storage = null;
+};

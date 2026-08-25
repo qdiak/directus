@@ -22,3 +22,7 @@ export const useBus = () => {
 
 	return _cache.bus;
 };
+
+export const closeBus = async (): Promise<void> => {
+	_cache.bus = undefined;
+};

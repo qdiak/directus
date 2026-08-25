@@ -1,30 +1,36 @@
 import { useEnv } from '@directus/env';
 import { HitRateLimitError } from '@directus/errors';
 import type { RequestHandler } from 'express';
+import type { Redis } from 'ioredis';
 import type { RateLimiterMemory, RateLimiterRedis } from 'rate-limiter-flexible';
 import { createRateLimiter } from '../rate-limiter.js';
+import { closeRedisClient } from '../redis/index.js';
 import asyncHandler from '../utils/async-handler.js';
 import { validateEnv } from '../utils/validate-env.js';
 
 const RATE_LIMITER_GLOBAL_KEY = 'global-rate-limit';
 
-let checkRateLimit: RequestHandler = (_req, _res, next) => next();
+const passThrough: RequestHandler = (_req, _res, next) => next();
+let checkRateLimit: RequestHandler = passThrough;
 
-export let rateLimiterGlobal: RateLimiterRedis | RateLimiterMemory;
+export let rateLimiterGlobal: RateLimiterRedis | RateLimiterMemory | undefined;
 
 export function initializeGlobalRateLimiter(): void {
 	const env = useEnv();
+	checkRateLimit = passThrough;
+	rateLimiterGlobal = undefined;
 
 	if (env['RATE_LIMITER_GLOBAL_ENABLED'] !== true) return;
 
 	validateEnv(['RATE_LIMITER_GLOBAL_STORE', 'RATE_LIMITER_GLOBAL_DURATION', 'RATE_LIMITER_GLOBAL_POINTS']);
 	validateConfiguration(env);
 
-	rateLimiterGlobal = createRateLimiter('RATE_LIMITER_GLOBAL');
+	const limiter = createRateLimiter('RATE_LIMITER_GLOBAL');
+	rateLimiterGlobal = limiter;
 
 	checkRateLimit = asyncHandler(async (_req, res, next) => {
 		try {
-			await rateLimiterGlobal.consume(RATE_LIMITER_GLOBAL_KEY, 1);
+			await limiter.consume(RATE_LIMITER_GLOBAL_KEY, 1);
 		} catch (rateLimiterRes: any) {
 			if (rateLimiterRes instanceof Error) throw rateLimiterRes;
 
@@ -42,6 +48,16 @@ export function initializeGlobalRateLimiter(): void {
 const globalRateLimitHandler: RequestHandler = (req, res, next) => checkRateLimit(req, res, next);
 
 export default globalRateLimitHandler;
+
+export async function closeGlobalRateLimiter(): Promise<void> {
+	const activeRateLimiter = rateLimiterGlobal;
+	checkRateLimit = passThrough;
+	rateLimiterGlobal = undefined;
+
+	if (activeRateLimiter && 'client' in activeRateLimiter) {
+		await closeRedisClient(activeRateLimiter.client as Redis);
+	}
+}
 
 function validateConfiguration(env: Record<string, unknown>) {
 	if (env['RATE_LIMITER_ENABLED'] !== true) {

@@ -21,3 +21,7 @@ export const useLock = () => {
 
 	return _cache.lock;
 };
+
+export const closeLock = async (): Promise<void> => {
+	_cache.lock = undefined;
+};

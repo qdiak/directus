@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import path from 'path';
 import qs from 'qs';
 import { registerAuthProviders } from './auth.js';
+import { initializeCache as initializeCacheStore } from './cache.js';
 import activityRouter from './controllers/activity.js';
 import assetsRouter from './controllers/assets.js';
 import authRouter from './controllers/auth.js';
@@ -52,6 +53,7 @@ import { getExtensionManager } from './extensions/index.js';
 import { getFlowManager } from './flows.js';
 import { setLifecycleState } from './lifecycle.js';
 import { createExpressLogger, useLogger } from './logger.js';
+import { initializeGraphqlSchemaCache } from './services/graphql/schema-cache.js';
 import authenticate from './middleware/authenticate.js';
 import cache from './middleware/cache.js';
 import { checkIP } from './middleware/check-ip.js';
@@ -109,6 +111,8 @@ async function createAppInternal(
 	validateEnv(['KEY', 'SECRET']);
 	initializeRateLimiter();
 	initializeGlobalRateLimiter();
+	await initializeCacheStore();
+	await initializeGraphqlSchemaCache();
 
 	if (!new Url(env['PUBLIC_URL'] as string).isAbsolute()) {
 		logger.warn('PUBLIC_URL should be a full URL');

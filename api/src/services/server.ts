@@ -118,6 +118,10 @@ export class ServerService {
 	}
 
 	async health(): Promise<Record<string, any>> {
+		if (getLifecycleState() !== 'online') {
+			return { status: 'error' };
+		}
+
 		const { nanoid } = await import('nanoid');
 
 		const checkID = nanoid(5);
@@ -156,10 +160,6 @@ export class ServerService {
 				])),
 			),
 		};
-
-		if (getLifecycleState() !== 'online') {
-			data.status = 'error';
-		}
 
 		for (const [service, healthData] of Object.entries(data.checks)) {
 			for (const healthCheck of healthData) {
@@ -308,6 +308,7 @@ export class ServerService {
 			const startTime = performance.now();
 
 			try {
+				if (!rateLimiter) throw new Error('Rate limiter is not initialized');
 				await rateLimiter.consume(`health-${checkID}`, 1);
 				await rateLimiter.delete(`health-${checkID}`);
 			} catch (err: any) {
@@ -350,6 +351,7 @@ export class ServerService {
 			const startTime = performance.now();
 
 			try {
+				if (!rateLimiterGlobal) throw new Error('Global rate limiter is not initialized');
 				await rateLimiterGlobal.consume(`health-${checkID}`, 1);
 				await rateLimiterGlobal.delete(`health-${checkID}`);
 			} catch (err: any) {

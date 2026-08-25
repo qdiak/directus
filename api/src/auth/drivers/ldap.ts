@@ -381,6 +381,10 @@ export class LDAPAuthDriver extends AuthDriver {
 			throw new InvalidCredentialsError();
 		}
 	}
+
+	override async close(): Promise<void> {
+		this.bindClient.destroy();
+	}
 }
 
 const handleError = (e: Error) => {

@@ -1,7 +1,7 @@
 import { StorageManager } from '@directus/storage';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { validateEnv } from '../utils/validate-env.js';
-import { getStorage, _cache } from './index.js';
+import { closeStorage, getStorage, _cache } from './index.js';
 import { registerDrivers } from './register-drivers.js';
 import { registerLocations } from './register-locations.js';
 
@@ -53,4 +53,12 @@ test('Returns cached storage manager', async () => {
 	const storage = await getStorage();
 	expect(storage).toBe(_cache.storage);
 	expect(storage).toBe(mockStorage);
+});
+
+test('Resets cached storage on close', async () => {
+	_cache.storage = mockStorage;
+
+	await closeStorage();
+
+	expect(_cache.storage).toBeNull();
 });

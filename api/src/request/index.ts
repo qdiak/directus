@@ -1,7 +1,9 @@
 import type { AxiosInstance } from 'axios';
+import type { Agent } from 'node:http';
 
-export const _cache: { axiosInstance: AxiosInstance | null } = {
+export const _cache: { axiosInstance: AxiosInstance | null; agents: Agent[] } = {
 	axiosInstance: null,
+	agents: [],
 };
 
 export async function getAxios() {
@@ -15,7 +17,16 @@ export async function getAxios() {
 		const httpsAgent = agentWithIpValidation(new AgentHttps());
 
 		_cache.axiosInstance = axios.create({ httpAgent, httpsAgent });
+		_cache.agents = [httpAgent, httpsAgent];
 	}
 
 	return _cache.axiosInstance;
+}
+
+export async function closeAxios(): Promise<void> {
+	const agents = _cache.agents;
+	_cache.axiosInstance = null;
+	_cache.agents = [];
+
+	for (const agent of agents) agent.destroy();
 }

@@ -2,7 +2,7 @@ import { createBus, type BusLocal, type BusRedis } from '@directus/memory';
 import type { Redis } from 'ioredis';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { redisConfigAvailable, useRedis } from '../../redis/index.js';
-import { _cache, useBus } from './use-bus.js';
+import { _cache, closeBus, useBus } from './use-bus.js';
 
 vi.mock('../../redis/index.js');
 vi.mock('@directus/memory');
@@ -62,4 +62,12 @@ test('Returns created bus', () => {
 
 	expect(bus).toBe(_cache.bus);
 	expect(bus).toBe(mockBus);
+});
+
+test('Resets the cached bus on close', async () => {
+	_cache.bus = mockBus;
+
+	await closeBus();
+
+	expect(_cache.bus).toBeUndefined();
 });

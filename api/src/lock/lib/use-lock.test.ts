@@ -2,7 +2,7 @@ import { createKv, type KvLocal, type KvRedis } from '@directus/memory';
 import type { Redis } from 'ioredis';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { redisConfigAvailable, useRedis } from '../../redis/index.js';
-import { _cache, useLock } from './use-lock.js';
+import { _cache, closeLock, useLock } from './use-lock.js';
 
 vi.mock('../../redis/index.js');
 vi.mock('@directus/memory');
@@ -62,4 +62,12 @@ test('Returns created lock', () => {
 
 	expect(lock).toBe(_cache.lock);
 	expect(lock).toBe(mockLock);
+});
+
+test('Resets the cached lock on close', async () => {
+	_cache.lock = mockLock;
+
+	await closeLock();
+
+	expect(_cache.lock).toBeUndefined();
 });

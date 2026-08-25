@@ -1,1 +1,1 @@
-export { useBus } from './lib/use-bus.js';
+export { closeBus, useBus } from './lib/use-bus.js';

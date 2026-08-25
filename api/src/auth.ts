@@ -29,6 +29,18 @@ export function getAuthProvider(provider: string): AuthDriver {
 	return providers.get(provider)!;
 }
 
+export async function closeAuthProviders(): Promise<void> {
+	const activeProviders = [...providers.values()];
+	providers.clear();
+
+	const results = await Promise.allSettled(activeProviders.map((provider) => provider.close()));
+	const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+
+	if (errors.length > 0) {
+		throw new AggregateError(errors, 'Failed to close auth providers');
+	}
+}
+
 export async function registerAuthProviders(): Promise<void> {
 	const env = useEnv();
 	const logger = useLogger();

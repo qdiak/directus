@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-let transporter: Transporter;
+let transporter: Transporter | undefined;
 
 export default function getMailer(): Transporter {
 	if (transporter) return transporter;
@@ -80,5 +80,12 @@ export default function getMailer(): Transporter {
 		logger.warn('Illegal transport given for email. Check the EMAIL_TRANSPORT env var.');
 	}
 
-	return transporter;
+	return transporter!;
+}
+
+export async function closeMailer(): Promise<void> {
+	const activeTransporter = transporter;
+	transporter = undefined;
+
+	activeTransporter?.close();
 }

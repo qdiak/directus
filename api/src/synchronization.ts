@@ -8,9 +8,10 @@ interface SynchronizationManager {
 	delete(key: string): Promise<void>;
 	exists(key: string): Promise<boolean>;
 	setGreaterThan(key: string, value: number): Promise<boolean>;
+	close(): Promise<void>;
 }
 
-let synchronizationManager: SynchronizationManager;
+let synchronizationManager: SynchronizationManager | undefined;
 
 function getSynchronizationManager() {
 	if (synchronizationManager) return synchronizationManager;
@@ -61,6 +62,10 @@ class SynchronizationManagerMemory implements SynchronizationManager {
 		this.setSync(key, value);
 
 		return true;
+	}
+
+	public async close(): Promise<void> {
+		this.store = {};
 	}
 
 	private setSync(key: string, value: string | number): void {
@@ -142,9 +147,24 @@ class SynchronizationManagerRedis implements SynchronizationManager {
 		return wasSet === 1;
 	}
 
+	public async close(): Promise<void> {
+		try {
+			if (this.client.status !== 'end') await this.client.quit();
+		} finally {
+			this.client.disconnect();
+		}
+	}
+
 	private getNamespacedKey(key: string): string {
 		return `${this.namespace}:${key}`;
 	}
+}
+
+export async function closeSynchronization(): Promise<void> {
+	const manager = synchronizationManager;
+	synchronizationManager = undefined;
+
+	await manager?.close();
 }
 
 export class SynchronizedClock {

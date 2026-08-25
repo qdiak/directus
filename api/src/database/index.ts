@@ -25,6 +25,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default getDatabase;
 
+export async function closeDatabase(): Promise<void> {
+	const currentDatabase = database;
+
+	database = null;
+	inspector = null;
+	databaseVersion = null;
+
+	await currentDatabase?.destroy();
+}
+
 export function getDatabase(): Knex {
 	if (database) {
 		return database;

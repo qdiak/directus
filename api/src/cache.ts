@@ -24,28 +24,42 @@ let localSchemaCache: Keyv | null = null;
 let sharedSchemaCache: Keyv | null = null;
 let lockCache: Keyv | null = null;
 let messengerSubscribed = false;
+let messenger: ReturnType<typeof useBus> | undefined;
+let messagingInitialization: Promise<void> | undefined;
 
 type Store = 'memory' | 'redis';
 
-const messenger = useBus();
-
 interface CacheMessage {
 	autoPurgeCache: boolean | undefined;
 }
 
-interface CacheMessage {
-	autoPurgeCache: boolean | undefined;
-}
+const handleSchemaChanged = async (payload: unknown) => {
+	const opts = payload as CacheMessage | undefined;
 
-if (redisConfigAvailable() && env['CACHE_STORE'] === 'memory' && env['CACHE_AUTO_PURGE'] && !messengerSubscribed) {
-	messengerSubscribed = true;
+	if (cache && opts?.['autoPurgeCache'] !== false) {
+		await cache.clear();
+	}
+};
 
-	messenger.subscribe<CacheMessage>('schemaChanged', async (opts) => {
-		if (cache && opts?.['autoPurgeCache'] !== false) {
-			await cache.clear();
-		}
-	});
-}
+export const initializeCache = async (): Promise<void> => {
+	if (!redisConfigAvailable() || env['CACHE_STORE'] !== 'memory' || !env['CACHE_AUTO_PURGE'] || messengerSubscribed) {
+		return;
+	}
+
+	const initialization = (messagingInitialization ??= (async () => {
+		messenger = useBus();
+		await messenger.subscribe<CacheMessage>('schemaChanged', handleSchemaChanged);
+		messengerSubscribed = true;
+	})());
+
+	try {
+		await initialization;
+	} catch (error) {
+		if (messagingInitialization === initialization) messagingInitialization = undefined;
+		messenger = undefined;
+		throw error;
+	}
+};
 
 export function getCache(): {
 	cache: Keyv | null;
@@ -54,6 +68,8 @@ export function getCache(): {
 	localSchemaCache: Keyv;
 	lockCache: Keyv;
 } {
+	void initializeCache().catch((error) => logger.warn(error));
+
 	if (env['CACHE_ENABLED'] === true && cache === null) {
 		validateEnv(['CACHE_NAMESPACE', 'CACHE_TTL', 'CACHE_STORE']);
 		cache = getKeyvInstance(env['CACHE_STORE'] as Store, getMilliseconds(env['CACHE_TTL']));
@@ -109,7 +125,47 @@ export async function clearSystemCache(opts?: {
 
 	await sharedSchemaCache.clear();
 	await localSchemaCache.clear();
-	messenger.publish<CacheMessage>('schemaChanged', { autoPurgeCache: opts?.autoPurgeCache });
+	await useBus().publish<CacheMessage>('schemaChanged', { autoPurgeCache: opts?.autoPurgeCache });
+}
+
+export async function closeCache(): Promise<void> {
+	const errors: unknown[] = [];
+
+	try {
+		await messagingInitialization;
+	} catch (error) {
+		errors.push(error);
+	}
+
+	messagingInitialization = undefined;
+
+	const activeCaches = [cache, systemCache, localSchemaCache, sharedSchemaCache, lockCache].filter(
+		(value): value is Keyv => value !== null,
+	);
+
+	cache = null;
+	systemCache = null;
+	localSchemaCache = null;
+	sharedSchemaCache = null;
+	lockCache = null;
+
+	if (messengerSubscribed && messenger) {
+		try {
+			await messenger.unsubscribe('schemaChanged', handleSchemaChanged);
+		} catch (error) {
+			errors.push(error);
+		}
+	}
+
+	messengerSubscribed = false;
+	messenger = undefined;
+
+	const results = await Promise.allSettled([...new Set(activeCaches)].map((instance) => instance.disconnect()));
+	errors.push(...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : [])));
+
+	if (errors.length > 0) {
+		throw new AggregateError(errors, 'Failed to close cache instances');
+	}
 }
 
 export async function setSystemCache(key: string, value: any, ttl?: number): Promise<void> {

@@ -15,6 +15,10 @@ export abstract class AuthDriver {
 		return;
 	}
 
+	async close(): Promise<void> {
+		return;
+	}
+
 	/**
 	 * Get user id for a given provider payload
 	 *
