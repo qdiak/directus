@@ -1,8 +1,4 @@
 import { defineOperationApi } from '@directus/extensions';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const ivm = require('isolated-vm');
 
 type Options = {
 	code: string;
@@ -19,6 +15,7 @@ function unpackArgs(args: any[]) {
 export default defineOperationApi<Options>({
 	id: 'exec',
 	handler: async ({ code }, { data, env, logger }) => {
+		const { default: ivm } = await import('isolated-vm');
 		const allowedEnv = data['$env'] ?? {};
 		const isolateSizeMb = env['FLOWS_RUN_SCRIPT_MAX_MEMORY'];
 		const scriptTimeoutMs = env['FLOWS_RUN_SCRIPT_TIMEOUT'];

@@ -26,7 +26,6 @@ import nodeResolveDefault from '@rollup/plugin-node-resolve';
 import virtualDefault from '@rollup/plugin-virtual';
 import chokidar, { FSWatcher } from 'chokidar';
 import express, { Router } from 'express';
-import ivm from 'isolated-vm';
 import { clone, debounce, isPlainObject } from 'lodash-es';
 import { readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
@@ -502,6 +501,7 @@ export class ExtensionManager {
 
 	private async registerSandboxedApiExtension(extension: ApiExtension | HybridExtension) {
 		const logger = useLogger();
+		const { default: ivm } = await import('isolated-vm');
 
 		const sandboxMemory = Number(env['EXTENSIONS_SANDBOX_MEMORY']);
 		const sandboxTimeout = Number(env['EXTENSIONS_SANDBOX_TIMEOUT']);
