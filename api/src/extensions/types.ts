@@ -9,4 +9,5 @@ export type BundleConfig = {
 export interface ExtensionManagerOptions {
 	schedule: boolean;
 	watch: boolean;
+	extensionsPath?: string;
 }

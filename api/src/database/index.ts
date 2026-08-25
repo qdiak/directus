@@ -259,14 +259,14 @@ export async function isInstalled(): Promise<boolean> {
 	return await inspector.hasTable('directus_collections');
 }
 
-export async function validateMigrations(): Promise<boolean> {
+export async function validateMigrations(options: { extensionsPath?: string } = {}): Promise<boolean> {
 	const database = getDatabase();
 	const logger = useLogger();
 
 	try {
 		let migrationFiles = await fse.readdir(path.join(__dirname, 'migrations'));
 
-		const customMigrationsPath = path.resolve(getExtensionsPath(), 'migrations');
+		const customMigrationsPath = path.resolve(getExtensionsPath(options.extensionsPath), 'migrations');
 
 		let customMigrationFiles =
 			((await fse.pathExists(customMigrationsPath)) && (await fse.readdir(customMigrationsPath))) || [];

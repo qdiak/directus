@@ -17,7 +17,7 @@ import { getExtensionsPath } from '../get-extensions-path.js';
 const env = useEnv();
 
 export class InstallationManager {
-	extensionPath = getExtensionsPath();
+	constructor(public readonly extensionPath = getExtensionsPath()) {}
 
 	async install(versionId: string) {
 		const logger = useLogger();

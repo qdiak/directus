@@ -12,8 +12,8 @@ export enum SyncStatus {
 /**
  * Retrieves the sync status from the `.status` file in the local extensions folder
  */
-export const getSyncStatus = async () => {
-	const statusFilePath = join(getExtensionsPath(), '.status');
+export const getSyncStatus = async (extensionsPath = getExtensionsPath()) => {
+	const statusFilePath = join(extensionsPath, '.status');
 
 	if (await exists(statusFilePath)) {
 		const status = await readFile(statusFilePath, 'utf8');
@@ -23,7 +23,7 @@ export const getSyncStatus = async () => {
 	}
 };
 
-export const setSyncStatus = async (status: SyncStatus) => {
-	const statusFilePath = join(getExtensionsPath(), '.status');
+export const setSyncStatus = async (status: SyncStatus, extensionsPath = getExtensionsPath()) => {
+	const statusFilePath = join(extensionsPath, '.status');
 	await writeFile(statusFilePath, status);
 };

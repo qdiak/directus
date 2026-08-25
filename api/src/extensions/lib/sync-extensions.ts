@@ -13,14 +13,15 @@ import { getStorage } from '../../storage/index.js';
 import { getExtensionsPath } from './get-extensions-path.js';
 import { SyncStatus, getSyncStatus, setSyncStatus } from './sync-status.js';
 
-export const syncExtensions = async (options?: { force: boolean }): Promise<void> => {
+export const syncExtensions = async (options?: { force: boolean; extensionsPath?: string }): Promise<void> => {
 	const lock = useLock();
 	const messenger = useBus();
 	const env = useEnv();
 	const logger = useLogger();
+	const extensionsPath = options?.extensionsPath ?? getExtensionsPath();
 
 	if (!options?.force) {
-		const isDone = (await getSyncStatus()) === SyncStatus.DONE;
+		const isDone = (await getSyncStatus(extensionsPath)) === SyncStatus.DONE;
 		if (isDone) return;
 	}
 
@@ -41,7 +42,6 @@ export const syncExtensions = async (options?: { force: boolean }): Promise<void
 	}
 
 	try {
-		const extensionsPath = getExtensionsPath();
 		const storageExtensionsPath = env['EXTENSIONS_PATH'] as string;
 
 		if (await exists(extensionsPath)) {
@@ -53,7 +53,7 @@ export const syncExtensions = async (options?: { force: boolean }): Promise<void
 
 		// Ensure that the local extensions cache path exists
 		await mkdir(extensionsPath, { recursive: true });
-		await setSyncStatus(SyncStatus.SYNCING);
+		await setSyncStatus(SyncStatus.SYNCING, extensionsPath);
 
 		logger.trace('Syncing extensions from configured storage location...');
 
@@ -80,7 +80,7 @@ export const syncExtensions = async (options?: { force: boolean }): Promise<void
 		}
 
 		await queue.onIdle();
-		await setSyncStatus(SyncStatus.DONE);
+		await setSyncStatus(SyncStatus.DONE, extensionsPath);
 		messenger.publish(machineKey, { ready: true });
 	} finally {
 		await lock.delete(machineKey);

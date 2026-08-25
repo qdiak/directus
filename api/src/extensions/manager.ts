@@ -148,7 +148,9 @@ export class ExtensionManager {
 	 * installation manager responsible for installing extensions from registries
 	 */
 
-	private installationManager: InstallationManager = getInstallationManager();
+	private installationManager: InstallationManager | undefined;
+
+	private extensionsPath: string | undefined;
 
 	private messenger = useBus();
 
@@ -185,10 +187,19 @@ export class ExtensionManager {
 	 */
 	public async initialize(options: Partial<ExtensionManagerOptions> = {}): Promise<void> {
 		const logger = useLogger();
+		const extensionsPath = getExtensionsPath(options.extensionsPath);
+
+		if (this.extensionsPath !== undefined && this.extensionsPath !== extensionsPath) {
+			throw new Error('Extension manager is already configured with a different extensions path');
+		}
+
+		this.extensionsPath = extensionsPath;
+		this.installationManager ??= getInstallationManager(extensionsPath);
 
 		this.options = {
 			...defaultOptions,
 			...options,
+			extensionsPath,
 		};
 
 		const wasWatcherInitialized = this.watcher !== null;
@@ -222,13 +233,13 @@ export class ExtensionManager {
 	 * Installs an external extension from registry
 	 */
 	public async install(versionId: string): Promise<void> {
-		await this.installationManager.install(versionId);
+		await this.getConfiguredInstallationManager().install(versionId);
 		await this.reload({ forceSync: true });
 		await this.broadcastReloadNotification();
 	}
 
 	public async uninstall(folder: string) {
-		await this.installationManager.uninstall(folder);
+		await this.getConfiguredInstallationManager().uninstall(folder);
 		await this.reload({ forceSync: true });
 		await this.broadcastReloadNotification();
 	}
@@ -242,10 +253,11 @@ export class ExtensionManager {
 	 */
 	private async load(options?: { forceSync: boolean }): Promise<void> {
 		const logger = useLogger();
+		const extensionsPath = this.getConfiguredExtensionsPath();
 
 		if (env['EXTENSIONS_LOCATION']) {
 			try {
-				await syncExtensions({ force: options?.forceSync ?? false });
+				await syncExtensions({ force: options?.forceSync ?? false, extensionsPath });
 			} catch (error) {
 				logger.error(`Failed to sync extensions`);
 				logger.error(error);
@@ -254,7 +266,7 @@ export class ExtensionManager {
 		}
 
 		try {
-			const { local, registry, module } = await getExtensions();
+			const { local, registry, module } = await getExtensions({ extensionsPath });
 
 			this.localExtensions = local;
 			this.registryExtensions = registry;
@@ -385,7 +397,7 @@ export class ExtensionManager {
 
 		logger.info('Watching extensions for changes...');
 
-		const extensionDirUrl = pathToRelativeUrl(getExtensionsPath());
+		const extensionDirUrl = pathToRelativeUrl(this.getConfiguredExtensionsPath());
 
 		this.watcher = chokidar.watch(
 			[path.resolve('package.json'), path.posix.join(extensionDirUrl, '*', 'package.json')],
@@ -431,7 +443,7 @@ export class ExtensionManager {
 	private updateWatchedExtensions(added: Extension[], removed: Extension[] = []): void {
 		if (!this.watcher) return;
 
-		const extensionDir = path.resolve(getExtensionsPath());
+		const extensionDir = path.resolve(this.getConfiguredExtensionsPath());
 		const registryDir = path.join(extensionDir, '.registry');
 
 		const toPackageExtensionPaths = (extensions: Extension[]) =>
@@ -451,6 +463,22 @@ export class ExtensionManager {
 
 		this.watcher.add(toPackageExtensionPaths(added));
 		this.watcher.unwatch(toPackageExtensionPaths(removed));
+	}
+
+	private getConfiguredExtensionsPath(): string {
+		if (this.extensionsPath === undefined) {
+			throw new Error('Extension manager has not been initialized');
+		}
+
+		return this.extensionsPath;
+	}
+
+	private getConfiguredInstallationManager(): InstallationManager {
+		if (this.installationManager === undefined) {
+			throw new Error('Extension manager has not been initialized');
+		}
+
+		return this.installationManager;
 	}
 
 	/**

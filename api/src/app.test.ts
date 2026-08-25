@@ -4,6 +4,8 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import createApp from './app.js';
+import { validateMigrations } from './database/index.js';
+import { validateStorage } from './utils/validate-storage.js';
 
 vi.mock('./database', () => ({
 	default: vi.fn(),
@@ -28,11 +30,12 @@ vi.mock('@directus/env', () => ({
 
 const mockGetEndpointRouter = vi.fn().mockReturnValue(Router());
 const mockGetEmbeds = vi.fn().mockReturnValue({ head: '', body: '' });
+const mockExtensionManagerInitialize = vi.fn();
 
 vi.mock('./extensions', () => ({
 	getExtensionManager: vi.fn().mockImplementation(() => {
 		return {
-			initialize: vi.fn(),
+			initialize: mockExtensionManagerInitialize,
 			getEndpointRouter: mockGetEndpointRouter,
 			getEmbeds: mockGetEmbeds,
 		};
@@ -69,6 +72,10 @@ vi.mock('./webhooks', () => ({
 
 vi.mock('./utils/validate-env.js');
 
+vi.mock('./utils/validate-storage.js', () => ({
+	validateStorage: vi.fn(),
+}));
+
 beforeEach(() => {
 	vi.mocked(useEnv).mockReturnValue({
 		KEY: 'xxxxxxx-xxxxxx-xxxxxxxx-xxxxxxxxxx',
@@ -103,6 +110,16 @@ const request = async (path: string = '') => {
 };
 
 describe('createApp', async () => {
+	test('propagates an explicit extensions path through bootstrap', async () => {
+		const extensionsPath = '/app/extensions';
+
+		await createApp({ extensionsPath });
+
+		expect(validateStorage).toHaveBeenCalledWith({ extensionsPath });
+		expect(validateMigrations).toHaveBeenCalledWith({ extensionsPath });
+		expect(mockExtensionManagerInitialize).toHaveBeenCalledWith({ extensionsPath });
+	});
+
 	describe('Content Security Policy', () => {
 		test('Should set content-security-policy header by default', async () => {
 			const response = await request();

@@ -70,10 +70,15 @@ import { validateStorage } from './utils/validate-storage.js';
 
 const require = createRequire(import.meta.url);
 
-export default async function createApp(): Promise<express.Application> {
+export type CreateAppOptions = {
+	extensionsPath?: string;
+};
+
+export default async function createApp(options: CreateAppOptions = {}): Promise<express.Application> {
 	const env = useEnv();
 	const logger = useLogger();
 	const helmet = await import('helmet');
+	const extensionOptions = options.extensionsPath === undefined ? {} : { extensionsPath: options.extensionsPath };
 
 	validateEnv(['KEY', 'SECRET']);
 
@@ -81,7 +86,7 @@ export default async function createApp(): Promise<express.Application> {
 		logger.warn('PUBLIC_URL should be a full URL');
 	}
 
-	await validateStorage();
+	await validateStorage(extensionOptions);
 
 	await validateDatabaseConnection();
 	await validateDatabaseExtensions();
@@ -91,7 +96,7 @@ export default async function createApp(): Promise<express.Application> {
 		process.exit(1);
 	}
 
-	if ((await validateMigrations()) === false) {
+	if ((await validateMigrations(extensionOptions)) === false) {
 		logger.warn(`Database migrations have not all been run`);
 	}
 
@@ -100,7 +105,7 @@ export default async function createApp(): Promise<express.Application> {
 	const extensionManager = getExtensionManager();
 	const flowManager = getFlowManager();
 
-	await extensionManager.initialize();
+	await extensionManager.initialize(extensionOptions);
 	await flowManager.initialize();
 
 	const app = express();
