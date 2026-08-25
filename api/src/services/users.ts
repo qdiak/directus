@@ -84,8 +84,8 @@ export class UsersService extends ItemsService {
 			return;
 		}
 
-		const wrapped = policyRegExString.startsWith('/') && policyRegExString.endsWith('/');
-		const regex = new RegExp(wrapped ? policyRegExString.slice(1, -1) : policyRegExString);
+		const literalRegEx = policyRegExString.match(/^\/(.*)\/([dgimsuvy]*)$/);
+		const regex = literalRegEx ? new RegExp(literalRegEx[1], literalRegEx[2]) : new RegExp(policyRegExString);
 
 		for (const password of passwords) {
 			if (!regex.test(password)) {
@@ -94,9 +94,7 @@ export class UsersService extends ItemsService {
 						message: `Provided password doesn't match password policy`,
 						path: ['password'],
 						type: 'custom.pattern.base',
-						context: {
-							value: password,
-						},
+						context: {},
 					}),
 				);
 			}
