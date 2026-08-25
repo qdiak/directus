@@ -58,12 +58,17 @@ import cors from './middleware/cors.js';
 import errorHandler from './middleware/error-handler.js';
 import extractToken from './middleware/extract-token.js';
 import getPermissions from './middleware/get-permissions.js';
-import rateLimiterGlobal from './middleware/rate-limiter-global.js';
-import rateLimiter from './middleware/rate-limiter-ip.js';
+import rateLimiterGlobal, { initializeGlobalRateLimiter } from './middleware/rate-limiter-global.js';
+import rateLimiter, { initializeRateLimiter } from './middleware/rate-limiter-ip.js';
 import sanitizeQuery from './middleware/sanitize-query.js';
 import schema from './middleware/schema.js';
 import { initTelemetry } from './telemetry/index.js';
 import { getConfigFromEnv } from './utils/get-config-from-env.js';
+import {
+	createBootstrapError,
+	exitOnBootstrapFailure,
+	type BootstrapFailureStrategy,
+} from './utils/bootstrap-failure.js';
 import { Url } from './utils/url.js';
 import { validateEnv } from './utils/validate-env.js';
 import { validateStorage } from './utils/validate-storage.js';
@@ -72,15 +77,31 @@ const require = createRequire(import.meta.url);
 
 export type CreateAppOptions = {
 	extensionsPath?: string;
+	failureStrategy?: BootstrapFailureStrategy;
 };
 
 export default async function createApp(options: CreateAppOptions = {}): Promise<express.Application> {
+	const failureStrategy = options.failureStrategy ?? exitOnBootstrapFailure;
+
+	try {
+		return await createAppInternal(options, failureStrategy);
+	} catch (error) {
+		return failureStrategy(createBootstrapError('Failed to bootstrap Directus', error));
+	}
+}
+
+async function createAppInternal(
+	options: CreateAppOptions,
+	failureStrategy: BootstrapFailureStrategy,
+): Promise<express.Application> {
 	const env = useEnv();
 	const logger = useLogger();
 	const helmet = await import('helmet');
 	const extensionOptions = options.extensionsPath === undefined ? {} : { extensionsPath: options.extensionsPath };
 
 	validateEnv(['KEY', 'SECRET']);
+	initializeRateLimiter();
+	initializeGlobalRateLimiter();
 
 	if (!new Url(env['PUBLIC_URL'] as string).isAbsolute()) {
 		logger.warn('PUBLIC_URL should be a full URL');
@@ -92,8 +113,7 @@ export default async function createApp(options: CreateAppOptions = {}): Promise
 	await validateDatabaseExtensions();
 
 	if ((await isInstalled()) === false) {
-		logger.error(`Database doesn't have Directus tables installed.`);
-		process.exit(1);
+		throw new Error(`Database doesn't have Directus tables installed.`);
 	}
 
 	if ((await validateMigrations(extensionOptions)) === false) {
@@ -105,7 +125,7 @@ export default async function createApp(options: CreateAppOptions = {}): Promise
 	const extensionManager = getExtensionManager();
 	const flowManager = getFlowManager();
 
-	await extensionManager.initialize(extensionOptions);
+	await extensionManager.initialize({ ...extensionOptions, failureStrategy });
 	await flowManager.initialize();
 
 	const app = express();

@@ -11,9 +11,11 @@ let checkRateLimit: RequestHandler = (_req, _res, next) => next();
 
 export let rateLimiter: RateLimiterRedis | RateLimiterMemory;
 
-const env = useEnv();
+export function initializeRateLimiter(): void {
+	const env = useEnv();
 
-if (env['RATE_LIMITER_ENABLED'] === true) {
+	if (env['RATE_LIMITER_ENABLED'] !== true) return;
+
 	validateEnv(['RATE_LIMITER_STORE', 'RATE_LIMITER_DURATION', 'RATE_LIMITER_POINTS']);
 
 	rateLimiter = createRateLimiter('RATE_LIMITER');
@@ -39,4 +41,6 @@ if (env['RATE_LIMITER_ENABLED'] === true) {
 	});
 }
 
-export default checkRateLimit;
+const rateLimitHandler: RequestHandler = (req, res, next) => checkRateLimit(req, res, next);
+
+export default rateLimitHandler;

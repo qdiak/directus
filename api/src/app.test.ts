@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import createApp from './app.js';
 import { validateMigrations } from './database/index.js';
+import { throwOnBootstrapFailure } from './utils/bootstrap-failure.js';
 import { validateStorage } from './utils/validate-storage.js';
 
 vi.mock('./database', () => ({
@@ -117,7 +118,26 @@ describe('createApp', async () => {
 
 		expect(validateStorage).toHaveBeenCalledWith({ extensionsPath });
 		expect(validateMigrations).toHaveBeenCalledWith({ extensionsPath });
-		expect(mockExtensionManagerInitialize).toHaveBeenCalledWith({ extensionsPath });
+
+		expect(mockExtensionManagerInitialize).toHaveBeenCalledWith({
+			extensionsPath,
+			failureStrategy: expect.any(Function),
+		});
+	});
+
+	test('preserves bootstrap causes when configured to throw', async () => {
+		const rootCause = new Error('storage unavailable');
+
+		vi.mocked(validateStorage).mockRejectedValueOnce(rootCause);
+
+		const error = await createApp({ failureStrategy: throwOnBootstrapFailure }).catch((error: unknown) => error);
+
+		expect(error).toBeInstanceOf(Error);
+
+		expect(error).toMatchObject({
+			message: 'Failed to bootstrap Directus',
+			cause: rootCause,
+		});
 	});
 
 	describe('Content Security Policy', () => {

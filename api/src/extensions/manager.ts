@@ -40,6 +40,7 @@ import { getFlowManager } from '../flows.js';
 import { useLogger } from '../logger.js';
 import * as services from '../services/index.js';
 import { deleteFromRequireCache } from '../utils/delete-from-require-cache.js';
+import { createBootstrapError, exitOnBootstrapFailure } from '../utils/bootstrap-failure.js';
 import getModuleDefault from '../utils/get-module-default.js';
 import { getSchema } from '../utils/get-schema.js';
 import { importFileUrl } from '../utils/import-file-url.js';
@@ -69,6 +70,7 @@ const env = useEnv();
 const defaultOptions: ExtensionManagerOptions = {
 	schedule: true,
 	watch: env['EXTENSIONS_AUTO_RELOAD'] as boolean,
+	failureStrategy: exitOnBootstrapFailure,
 };
 
 export class ExtensionManager {
@@ -252,16 +254,13 @@ export class ExtensionManager {
 	 * Load all extensions from disk and register them in their respective places
 	 */
 	private async load(options?: { forceSync: boolean }): Promise<void> {
-		const logger = useLogger();
 		const extensionsPath = this.getConfiguredExtensionsPath();
 
 		if (env['EXTENSIONS_LOCATION']) {
 			try {
 				await syncExtensions({ force: options?.forceSync ?? false, extensionsPath });
 			} catch (error) {
-				logger.error(`Failed to sync extensions`);
-				logger.error(error);
-				process.exit(1);
+				this.options.failureStrategy(createBootstrapError('Failed to sync extensions', error));
 			}
 		}
 
@@ -947,10 +946,9 @@ export class ExtensionManager {
 		const logger = useLogger();
 
 		if (toBoolean(env['EXTENSIONS_MUST_LOAD'])) {
-			logger.error('EXTENSION_MUST_LOAD is enabled and an extension failed to load.');
-			logger.error(reason);
-			if (error) logger.error(error);
-			process.exit(1);
+			this.options.failureStrategy(
+				createBootstrapError(`EXTENSION_MUST_LOAD is enabled and an extension failed to load: ${reason}`, error),
+			);
 		} else {
 			logger.warn(reason);
 			if (error) logger.warn(error);

@@ -211,7 +211,6 @@ export async function hasDatabaseConnection(database?: Knex): Promise<boolean> {
 
 export async function validateDatabaseConnection(database?: Knex): Promise<void> {
 	database = database ?? getDatabase();
-	const logger = useLogger();
 
 	try {
 		if (getDatabaseClient(database) === 'oracle') {
@@ -220,9 +219,7 @@ export async function validateDatabaseConnection(database?: Knex): Promise<void>
 			await database.raw('SELECT 1');
 		}
 	} catch (error: any) {
-		logger.error(`Can't connect to the database.`);
-		logger.error(error);
-		process.exit(1);
+		throw new Error(`Can't connect to the database.`, { cause: error });
 	}
 }
 
@@ -261,7 +258,6 @@ export async function isInstalled(): Promise<boolean> {
 
 export async function validateMigrations(options: { extensionsPath?: string } = {}): Promise<boolean> {
 	const database = getDatabase();
-	const logger = useLogger();
 
 	try {
 		let migrationFiles = await fse.readdir(path.join(__dirname, 'migrations'));
@@ -287,9 +283,7 @@ export async function validateMigrations(options: { extensionsPath?: string } = 
 
 		return requiredVersions.every((version) => completedVersions.includes(version));
 	} catch (error: any) {
-		logger.error(`Database migrations cannot be found`);
-		logger.error(error);
-		throw process.exit(1);
+		throw new Error(`Database migrations cannot be found`, { cause: error });
 	}
 }
 

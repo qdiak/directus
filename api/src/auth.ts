@@ -39,6 +39,7 @@ export async function registerAuthProviders(): Promise<void> {
 	// Register default provider if not disabled
 	if (!env['AUTH_DISABLE_DEFAULT']) {
 		const defaultProvider = getProviderInstance('local', options)!;
+		await defaultProvider.initialize();
 		providers.set(DEFAULT_AUTH_PROVIDER, defaultProvider);
 	}
 
@@ -47,30 +48,30 @@ export async function registerAuthProviders(): Promise<void> {
 	}
 
 	// Register configured providers
-	providerNames.forEach((name: string) => {
+	for (let name of providerNames) {
 		name = name.trim();
 
 		if (name === DEFAULT_AUTH_PROVIDER) {
-			logger.error(`Cannot override "${DEFAULT_AUTH_PROVIDER}" auth provider.`);
-			process.exit(1);
+			throw new Error(`Cannot override "${DEFAULT_AUTH_PROVIDER}" auth provider.`);
 		}
 
 		const { driver, ...config } = getConfigFromEnv(`AUTH_${name.toUpperCase()}_`);
 
 		if (!driver) {
 			logger.warn(`Missing driver definition for "${name}" auth provider.`);
-			return;
+			continue;
 		}
 
 		const provider = getProviderInstance(driver, options, { provider: name, ...config });
 
 		if (!provider) {
 			logger.warn(`Invalid "${driver}" auth driver.`);
-			return;
+			continue;
 		}
 
+		await provider.initialize();
 		providers.set(name, provider);
-	});
+	}
 }
 
 function getProviderInstance(

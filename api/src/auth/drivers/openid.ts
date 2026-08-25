@@ -68,36 +68,31 @@ export class OpenIDAuthDriver extends LocalAuthDriver {
 		this.usersService = new UsersService({ knex: this.knex, schema: this.schema });
 		this.config = additionalConfig;
 
-		this.client = new Promise((resolve, reject) => {
-			Issuer.discover(issuerUrl)
-				.then((issuer) => {
-					const supportedTypes = issuer.metadata['response_types_supported'] as string[] | undefined;
+		this.client = Issuer.discover(issuerUrl).then((issuer) => {
+			const supportedTypes = issuer.metadata['response_types_supported'] as string[] | undefined;
 
-					if (!supportedTypes?.includes('code')) {
-						logger.error('OpenID provider does not support required code flow');
-
-						reject(
-							new InvalidProviderConfigError({
-								provider: additionalConfig['provider'],
-							}),
-						);
-					}
-
-					resolve(
-						new issuer.Client({
-							client_id: clientId,
-							client_secret: clientSecret,
-							redirect_uris: [this.redirectUrl],
-							response_types: ['code'],
-							...clientOptionsOverrides,
-						}),
-					);
-				})
-				.catch((e) => {
-					logger.error(e, '[OpenID] Failed to fetch provider config');
-					process.exit(1);
+			if (!supportedTypes?.includes('code')) {
+				throw new InvalidProviderConfigError({
+					provider: additionalConfig['provider'],
 				});
+			}
+
+			return new issuer.Client({
+				client_id: clientId,
+				client_secret: clientSecret,
+				redirect_uris: [this.redirectUrl],
+				response_types: ['code'],
+				...clientOptionsOverrides,
+			});
 		});
+	}
+
+	override async initialize(): Promise<void> {
+		try {
+			await this.client;
+		} catch (error) {
+			throw new Error('[OpenID] Failed to fetch provider config', { cause: error });
+		}
 	}
 
 	generateCodeVerifier(): string {

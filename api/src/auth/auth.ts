@@ -11,6 +11,10 @@ export abstract class AuthDriver {
 		this.schema = options.schema;
 	}
 
+	async initialize(): Promise<void> {
+		return;
+	}
+
 	/**
 	 * Get user id for a given provider payload
 	 *
