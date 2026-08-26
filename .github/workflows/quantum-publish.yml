@@ -1,0 +1,127 @@
+name: Publish Quantum packages
+
+# ÁTMENETI(quantum.3): ez a kézi gate a három előkészített .3 csomag egyszeri,
+# idempotensen újrafuttatható kiadását védi. A kiadás lezárása után törlendő,
+# vagy külön döntéssel általános, manifestből verziózott Quantum release flow-vá alakítandó.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type publish-quantum.3 to publish the prepared release
+        required: true
+        type: string
+      expected_sha:
+        description: Exact validated 10.10.8-quantum commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-quantum-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish Quantum package trio
+    if: github.ref == 'refs/heads/10.10.8-quantum'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NODE_OPTIONS: --max_old_space_size=6144
+    steps:
+      - name: Checkout validated release commit
+        uses: actions/checkout@v4
+
+      - name: Verify release authorization and commit
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          if [ "$CONFIRMATION" != 'publish-quantum.3' ]; then
+            echo 'The explicit release confirmation is missing.' >&2
+            exit 1
+          fi
+
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo "Refusing to publish unvalidated commit: expected=$EXPECTED_SHA actual=$actual_sha" >&2
+            exit 1
+          fi
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          registry-url: https://registry.npmjs.org
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8.15.4
+          run_install: false
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Quantum package closure
+        run: pnpm --filter quantum_directus_api... build
+        env:
+          npm_config_workspace_concurrency: '1'
+
+      # A Quantum verziók prerelease-ek: a canary tag publikálhatóvá teszi az
+      # exact .3 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
+      # A csomagonkénti ellenőrzés egy részben sikerült kiadás biztonságos
+      # folytatását is lehetővé teszi ugyanarról a változatlan commitról.
+      - name: Publish exact Quantum package trio
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+        run: |
+          publish_if_missing() {
+            package_dir="$1"
+            package_name="$2"
+            package_version="$3"
+            package_spec="$package_name@$package_version"
+
+            if npm view "$package_spec" version >/dev/null 2>&1; then
+              echo "publish=skipped package=$package_spec reason=already-exists"
+              return
+            fi
+
+            pnpm --dir "$package_dir" publish \
+              --access=public \
+              --no-git-checks \
+              --tag canary
+          }
+
+          publish_if_missing app quantum_directus_app 12.0.3-quantum.3
+          publish_if_missing api quantum_directus_api 19.0.3-quantum.3
+          publish_if_missing directus quantum_directus 10.10.8-quantum.3
+
+      - name: Verify published versions and tags
+        run: |
+          verify_release() {
+            package_name="$1"
+            expected_version="$2"
+            package_spec="$package_name@$expected_version"
+            actual_version="$(npm view "$package_spec" version)"
+            canary_version="$(npm view "$package_name" dist-tags.canary)"
+
+            if [ "$actual_version" != "$expected_version" ]; then
+              echo "Published version mismatch: expected=$expected_version actual=$actual_version" >&2
+              exit 1
+            fi
+
+            if [ "$canary_version" != "$expected_version" ]; then
+              echo "Canary tag mismatch: expected=$expected_version actual=$canary_version" >&2
+              exit 1
+            fi
+          }
+
+          verify_release quantum_directus_app 12.0.3-quantum.3
+          verify_release quantum_directus_api 19.0.3-quantum.3
+          verify_release quantum_directus 10.10.8-quantum.3
