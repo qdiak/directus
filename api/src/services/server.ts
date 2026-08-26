@@ -393,15 +393,23 @@ export class ServerService {
 				];
 
 				const startTime = performance.now();
+				const healthFile = `health-${checkID}`;
 
 				try {
-					await disk.write(`health-${checkID}`, Readable.from(['check']));
-					const fileStream = await disk.read(`health-${checkID}`);
+					await disk.write(healthFile, Readable.from(['check']));
 
-					fileStream.on('data', async () => {
-						fileStream.destroy();
-						await disk.delete(`health-${checkID}`);
-					});
+					try {
+						const fileStream = await disk.read(healthFile);
+
+						for await (const _chunk of fileStream) {
+							break;
+						}
+					} finally {
+						// A health válasz csak a saját próbaállományának törlése után készülhet el.
+						// Egy leválasztott async data listener túlélhetné a választ és a runtime
+						// teardownját, majd már eltávolított storage-on futva unhandled hibát okozna.
+						await disk.delete(healthFile);
+					}
 				} catch (err: any) {
 					checks[`storage:${location}:responseTime`]![0]!.status = 'error';
 					checks[`storage:${location}:responseTime`]![0]!.output = err;
