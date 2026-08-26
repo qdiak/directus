@@ -1,22 +1,19 @@
 name: Publish Quantum packages
 
-# ÁTMENETI(quantum.3): ez a kézi gate a három előkészített .3 csomag egyszeri,
+# ÁTMENETI(quantum.3): ez a tag-gate a három előkészített .3 csomag egyszeri,
 # idempotensen újrafuttatható kiadását védi. A kiadás lezárása után törlendő,
 # vagy külön döntéssel általános, manifestből verziózott Quantum release flow-vá alakítandó.
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirmation:
-        description: Type publish-quantum.3 to publish the prepared release
-        required: true
-        type: string
-      expected_sha:
-        description: Exact validated 10.10.8-quantum commit SHA
-        required: true
-        type: string
-
+  # A workflow_dispatch csak akkor hívható API-ból, ha ez a workflow már a
+  # repository default branchén is létezik. A fork release branchét ezért egy
+  # pontos, egyszer használható, nem upstream-v* tag aktiválja. Más tag vagy
+  # későbbi Quantum verzió külön review nélkül nem örökli ezt a felhatalmazást.
+  push:
+    tags:
+      - quantum-publish/10.10.8-quantum.3
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -27,7 +24,7 @@ concurrency:
 jobs:
   publish:
     name: Publish Quantum package trio
-    if: github.ref == 'refs/heads/10.10.8-quantum'
+    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.3'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -35,22 +32,78 @@ jobs:
     steps:
       - name: Checkout validated release commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Verify release authorization and commit
+        id: authorization
         env:
-          CONFIRMATION: ${{ inputs.confirmation }}
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          AUTHORIZED_PARENT_SHA: 856e88d5215c887e4bcf31dfa65a4ab38ec3918e
         run: |
-          if [ "$CONFIRMATION" != 'publish-quantum.3' ]; then
-            echo 'The explicit release confirmation is missing.' >&2
+          actual_sha="$(git rev-parse HEAD)"
+          actual_parent="$(git rev-parse HEAD^)"
+          changed_files="$(git diff --name-only "$AUTHORIZED_PARENT_SHA" "$actual_sha")"
+
+          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.3' ]; then
+            echo "Refusing unexpected release tag: $GITHUB_REF" >&2
             exit 1
           fi
 
-          actual_sha="$(git rev-parse HEAD)"
-          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
-            echo "Refusing to publish unvalidated commit: expected=$EXPECTED_SHA actual=$actual_sha" >&2
+          if [ "$actual_parent" != "$AUTHORIZED_PARENT_SHA" ]; then
+            echo "Refusing release commit with an unexpected parent: expected=$AUTHORIZED_PARENT_SHA actual=$actual_parent" >&2
             exit 1
           fi
+
+          if [ "$changed_files" != '.github/workflows/quantum-publish.yml' ]; then
+            echo "Refusing release commit with non-workflow changes:" >&2
+            printf '%s\n' "$changed_files" >&2
+            exit 1
+          fi
+
+          echo "target_sha=$actual_sha" >> "$GITHUB_OUTPUT"
+
+      # A tag maga az explicit kiadási felhatalmazás, de nem helyettesíti a
+      # validációt: a csomagok csak a tag által mutatott SHA teljes Node/Bun
+      # embedded runtime gate-jének sikere után kerülhetnek a registrybe.
+      - name: Wait for the matching embedded runtime gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.authorization.outputs.target_sha }}
+        run: |
+          for attempt in $(seq 1 80); do
+            run_json="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow quantum-embedded.yml \
+              --branch 10.10.8-quantum \
+              --commit "$TARGET_SHA" \
+              --event push \
+              --limit 1 \
+              --json databaseId,headSha,status,conclusion \
+              --jq '.[0]')"
+
+            if [ -z "$run_json" ]; then
+              sleep 15
+              continue
+            fi
+
+            status="$(jq -r '.status' <<<"$run_json")"
+            conclusion="$(jq -r '.conclusion' <<<"$run_json")"
+
+            if [ "$status" = 'completed' ]; then
+              if [ "$conclusion" != 'success' ]; then
+                echo "Matching embedded runtime gate failed: $run_json" >&2
+                exit 1
+              fi
+
+              echo "Matching embedded runtime gate passed: $run_json"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Timed out waiting for the embedded runtime gate for $TARGET_SHA" >&2
+          exit 1
 
       - name: Install Node.js
         uses: actions/setup-node@v4
