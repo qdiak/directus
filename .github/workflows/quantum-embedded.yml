@@ -52,6 +52,14 @@ jobs:
       - name: Check changed files
         run: pnpm --filter quantum_directus_api check:changed
 
+      # A forrás-tesztek is a workspace package-ek publikus dist entrypointjait
+      # fogyasztják. Clean runneren ezért a dependency-gráfot a Vitest előtt kell
+      # felépíteni; lokálisan ezt könnyen elfedné egy korábbról megmaradt dist.
+      - name: Build API dependency graph
+        run: pnpm --filter quantum_directus_api... build
+        env:
+          npm_config_workspace_concurrency: '1'
+
       - name: Run embedded runtime tests
         run: pnpm --filter quantum_directus_api test:embedded
 
