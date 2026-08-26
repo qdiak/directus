@@ -7,11 +7,12 @@ name: Publish Quantum packages
 on:
   # A workflow_dispatch csak akkor hívható API-ból, ha ez a workflow már a
   # repository default branchén is létezik. A fork release branchét ezért egy
-  # pontos, egyszer használható, nem upstream-v* tag aktiválja. Más tag vagy
-  # későbbi Quantum verzió külön review nélkül nem örökli ezt a felhatalmazást.
+  # pontos, egyszer használható, nem upstream-v* retry tag aktiválja. Az első
+  # tag pnpm CLI-hívása még publikálás előtt hibázott; azt nem mozgatjuk át.
+  # Más tag vagy későbbi Quantum verzió nem örökli ezt a felhatalmazást.
   push:
     tags:
-      - quantum-publish/10.10.8-quantum.3
+      - quantum-publish/10.10.8-quantum.3-retry-1
 permissions:
   actions: read
   contents: read
@@ -24,7 +25,7 @@ concurrency:
 jobs:
   publish:
     name: Publish Quantum package trio
-    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.3'
+    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.3-retry-1'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -38,13 +39,13 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: 856e88d5215c887e4bcf31dfa65a4ab38ec3918e
+          AUTHORIZED_PARENT_SHA: 131b8a56af1e80f39dc7924a370a732f677064f7
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
           changed_files="$(git diff --name-only "$AUTHORIZED_PARENT_SHA" "$actual_sha")"
 
-          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.3' ]; then
+          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.3-retry-1' ]; then
             echo "Refusing unexpected release tag: $GITHUB_REF" >&2
             exit 1
           fi
@@ -145,7 +146,9 @@ jobs:
               return
             fi
 
-            pnpm --dir "$package_dir" publish \
+            # A pnpm 8 publish a csomagkönyvtárat pozicionális argumentumként
+            # várja; a `--dir <könyvtár> publish` alak npm EUSAGE hibát okoz.
+            pnpm publish "$package_dir" \
               --access=public \
               --no-git-checks \
               --tag canary
