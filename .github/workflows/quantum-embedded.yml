@@ -78,25 +78,28 @@ jobs:
       matrix:
         include:
           - label: Node 18
-            node: 18
+            consumer_node: 18
             runtime: node
             sandbox: '1'
           - label: Node 22
-            node: 22
+            consumer_node: 22
             runtime: node
             sandbox: '1'
           - label: Bun 1.3.14
-            node: 22
+            consumer_node: 18
             runtime: bun
             sandbox: '0'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Node.js
+      # A monorepo deklarált build-toolchainje Node 18, és néhány csak buildhez
+      # szükséges legacy dependency engine-tartománya nem fogadja el a Node 22-t.
+      # A csomag fogyasztói runtime-ját ettől külön, a build után választjuk ki.
+      - name: Install build Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 18
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -110,11 +113,10 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Verify toolchain
+      - name: Verify build toolchain
         run: |
           node --version
           pnpm --version
-          if [ "${{ matrix.runtime }}" = "bun" ]; then bun --version; fi
 
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
@@ -123,6 +125,17 @@ jobs:
         run: pnpm --filter quantum_directus_api... build
         env:
           npm_config_workspace_concurrency: '1'
+
+      - name: Install consumer Node.js
+        if: matrix.consumer_node == 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify consumer runtime
+        run: |
+          node --version
+          if [ "${{ matrix.runtime }}" = "bun" ]; then bun --version; fi
 
       - name: Run packed artifact smoke
         run: pnpm --filter quantum_directus_api test:artifact

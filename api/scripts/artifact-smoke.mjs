@@ -1,7 +1,8 @@
 /* eslint-env es6 */
 /* eslint-disable no-console */
 import { spawn } from 'node:child_process';
-import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const apiDirectory = resolve(scriptsDirectory, '..');
 const repositoryRoot = resolve(apiDirectory, '..');
+const appDirectory = resolve(repositoryRoot, 'app');
+const directusDirectory = resolve(repositoryRoot, 'directus');
 const runtime = process.env['DIRECTUS_ARTIFACT_RUNTIME'] || process.execPath;
 const pnpm = process.env['DIRECTUS_ARTIFACT_PNPM'] || 'pnpm';
 const commandTimeout = Number(process.env['DIRECTUS_ARTIFACT_COMMAND_TIMEOUT_MS'] || 600_000);
@@ -37,15 +40,13 @@ try {
 
 	const packDirectory = join(temporaryRoot, 'pack');
 	await mkdir(packDirectory);
-	await run(pnpm, ['pack', '--pack-destination', packDirectory], { cwd: apiDirectory });
 
-	const tarballs = (await readdir(packDirectory)).filter((file) => file.endsWith('.tgz'));
-
-	if (tarballs.length !== 1) {
-		throw new Error(`Expected one API tarball, received ${tarballs.length}`);
-	}
-
-	const tarball = join(packDirectory, tarballs[0]);
+	// A három Quantum csomag egymásra hivatkozó, együtt publikált release-egység.
+	// A smoke ezért mindhármat a workspace-ből csomagolja, hogy egy még nem
+	// publikált verzió CI-ja se a registry korábbi siblingjeivel adjon hamis eredményt.
+	const appTarball = await packWorkspacePackage(appDirectory, 'quantum_directus_app', packDirectory);
+	const directusTarball = await packWorkspacePackage(directusDirectory, 'quantum_directus', packDirectory);
+	const apiTarball = await packWorkspacePackage(apiDirectory, 'quantum_directus_api', packDirectory);
 	const consumerDirectory = join(temporaryRoot, 'consumer');
 	await mkdir(consumerDirectory);
 
@@ -57,11 +58,13 @@ try {
 				private: true,
 				type: 'module',
 				dependencies: {
-					quantum_directus_api: `file:${tarball}`,
+					quantum_directus_api: `file:${apiTarball}`,
 				},
 				pnpm: {
 					overrides: {
-						quantum_directus_api: `file:${tarball}`,
+						quantum_directus: `file:${directusTarball}`,
+						quantum_directus_api: `file:${apiTarball}`,
+						quantum_directus_app: `file:${appTarball}`,
 					},
 				},
 			},
@@ -83,20 +86,68 @@ try {
 		await run(runtime, ['sandbox.mjs'], { cwd: consumerDirectory, timeout: runtimeTimeout });
 	}
 
-	const packedManifest = JSON.parse(
-		await readFile(join(consumerDirectory, 'node_modules/quantum_directus_api/package.json')),
+	const packedApiManifestPath = join(consumerDirectory, 'node_modules/quantum_directus_api/package.json');
+	const packedApiManifest = JSON.parse(await readFile(packedApiManifestPath));
+	// A pnpm symlinkelt package-et realpath alapján oldjuk fel, különben a Node a
+	// consumer gyökerében keresné a szándékosan csak tranzitívan telepített siblingeket.
+	const requireFromPackedApi = createRequire(await realpath(packedApiManifestPath));
+
+	const packedAppManifest = JSON.parse(
+		await readFile(requireFromPackedApi.resolve('quantum_directus_app/package.json')),
 	);
 
+	const packedDirectusManifest = JSON.parse(
+		await readFile(requireFromPackedApi.resolve('quantum_directus/package.json')),
+	);
+
+	assertPublishedDependency(packedApiManifest, 'quantum_directus_app', packedAppManifest.version);
+	assertPublishedDependency(packedApiManifest, 'quantum_directus', packedDirectusManifest.version);
+	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', packedApiManifest.version);
+	assertNoLocalDependencySpecifiers(packedApiManifest);
+	assertNoLocalDependencySpecifiers(packedAppManifest);
+	assertNoLocalDependencySpecifiers(packedDirectusManifest);
+
 	console.log(
-		`artifact-smoke=ok package=${packedManifest.version} runtime=${basename(runtime)} sandbox=${
-			runSandbox ? 'on' : 'off'
-		}`,
+		`artifact-smoke=ok api=${packedApiManifest.version} app=${packedAppManifest.version} directus=${
+			packedDirectusManifest.version
+		} runtime=${basename(runtime)} sandbox=${runSandbox ? 'on' : 'off'}`,
 	);
 } finally {
 	if (process.env['DIRECTUS_ARTIFACT_KEEP_TEMP'] === '1') {
 		console.log(`artifact-smoke-temp=${temporaryRoot}`);
 	} else {
 		await rm(temporaryRoot, { recursive: true, force: true });
+	}
+}
+
+async function packWorkspacePackage(packageDirectory, packageName, packDirectory) {
+	await run(pnpm, ['pack', '--pack-destination', packDirectory], { cwd: packageDirectory });
+
+	const prefix = `${packageName}-`;
+	const matches = (await readdir(packDirectory)).filter((file) => file.startsWith(prefix) && file.endsWith('.tgz'));
+
+	if (matches.length !== 1) {
+		throw new Error(`Expected one ${packageName} tarball, received ${matches.length}`);
+	}
+
+	return join(packDirectory, matches[0]);
+}
+
+function assertPublishedDependency(manifest, dependencyName, expectedVersion) {
+	const actualVersion = manifest.dependencies?.[dependencyName];
+
+	if (actualVersion !== expectedVersion) {
+		throw new Error(
+			`${manifest.name} must depend on ${dependencyName}@${expectedVersion}; received ${String(actualVersion)}`,
+		);
+	}
+}
+
+function assertNoLocalDependencySpecifiers(manifest) {
+	for (const [dependencyName, version] of Object.entries(manifest.dependencies ?? {})) {
+		if (typeof version === 'string' && /^(?:file|link|workspace):/.test(version)) {
+			throw new Error(`${manifest.name} retained local dependency ${dependencyName}@${version}`);
+		}
 	}
 }
 
