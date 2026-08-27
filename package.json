@@ -7,7 +7,7 @@
 		"format": "prettier --cache --check .",
 		"lint": "eslint --cache .",
 		"test": "pnpm --recursive --filter '!tests-blackbox' test",
-		"test:blackbox": "pnpm --filter directus deploy --prod dist && pnpm --filter tests-blackbox test",
+		"test:blackbox": "pnpm --filter quantum_directus deploy --prod dist && pnpm --filter tests-blackbox test",
 		"quantum:version": "pnpm m --filter 'quantum_*' exec pnpm version prerelease",
 		"quantum:publish": "pnpm install && pnpm build && pnpm m --filter 'quantum_*' exec pnpm publish --publish-branch 10.10.8-quantum",
 		"quantum:link": "pnpm m --filter 'quantum_*' exec pnpm link -g"
