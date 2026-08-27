@@ -1,230 +1,160 @@
-import { test, expect } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import config from './index.js';
 
-test('Rejects when Isolate uses more than allowed memory', async () => {
-	const testCode = `
-		const storage = [];
-		const twoMegabytes = 1024 * 1024 * 2;
-		while (true) {
-			const array = new Uint8Array(twoMegabytes);
-			for (let ii = 0; ii < twoMegabytes; ii += 4096) {
-				array[ii] = 1; // we have to put something in the array to flush to real memory
-			}
-			storage.push(array);
-		}
-	`;
+const logger = {
+	info: vi.fn(),
+	warn: vi.fn(),
+	error: vi.fn(),
+	trace: vi.fn(),
+	debug: vi.fn(),
+};
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('Array buffer allocation failed');
+const runScript = (code: string, data: Record<string, unknown> = {}) =>
+	config.handler({ code }, { data, logger } as any);
+
+afterEach(() => {
+	vi.clearAllMocks();
+	delete (globalThis as Record<string, unknown>)['__directusRunScriptOutput'];
 });
 
-test('Rejects when operation runs for longer than allowed ', async () => {
-	const testCodeSetup = `
-		while (true) {}
-	`;
+describe('Run Script operation', () => {
+	it('returns a synchronous primitive result', async () => {
+		await expect(runScript(`module.exports = function () { return 42; };`)).resolves.toBe(42);
+	});
 
-	const testCodeOperation = `
-		module.exports = async function (data) {
-			while (true) {}
-		}
-	`;
+	it('returns a synchronous function result', async () => {
+		await expect(
+			runScript(
+				`module.exports = function (data) {
+					return { result: data.greeting + ', I ran synchronously' };
+				};`,
+				{ greeting: 'Hello' },
+			),
+		).resolves.toEqual({ result: 'Hello, I ran synchronously' });
+	});
 
-	await expect(
-		config.handler({ code: testCodeSetup }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 250,
-			},
-		} as any),
-	).rejects.toThrow('Script execution timed out.');
+	it('returns an asynchronous function result', async () => {
+		await expect(
+			runScript(
+				`module.exports = async function (data) {
+					return { result: data.greeting + ', I ran asynchronously' };
+				};`,
+				{ greeting: 'Hello' },
+			),
+		).resolves.toEqual({ result: 'Hello, I ran asynchronously' });
+	});
 
-	await expect(
-		config.handler({ code: testCodeOperation }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 250,
-			},
-		} as any),
-	).rejects.toThrow('Script execution timed out.');
-});
+	it('passes a structured clone of the input to the exported function', async () => {
+		const data = { nested: { value: 'before' } };
 
-test('Rejects when cjs modules are used', async () => {
-	const testCode = `
-		const test = require('node:fs');
-	`;
+		await expect(
+			runScript(
+				`module.exports = function (data) {
+					data.nested.value = 'inside';
+					return data;
+				};`,
+				data,
+			),
+		).resolves.toEqual({ nested: { value: 'inside' } });
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('require is not defined');
-});
+		expect(data).toEqual({ nested: { value: 'before' } });
+	});
 
-test('Rejects when esm modules are used', async () => {
-	const testCode = `
-		import { readFileSync } from 'node:fs';
-	`;
+	it('returns a structured clone of the exported function result', async () => {
+		const result = await runScript(`module.exports = function () {
+			const output = { nested: { value: 'before' } };
+			globalThis.__directusRunScriptOutput = output;
+			return output;
+		};`);
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('Cannot use import statement outside a module [<isolated-vm>:2:3]');
-});
+		const hostReference = (globalThis as Record<string, any>)['__directusRunScriptOutput'];
+		hostReference.nested.value = 'after';
 
-test('Rejects when code contains syntax errors', async () => {
-	const testCode = `
-		~~
-	`;
+		expect(result).toEqual({ nested: { value: 'before' } });
+	});
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('Unexpected end of input [<isolated-vm>:3:2]');
-});
+	it('exposes data.$env through the local process convenience object', async () => {
+		const data = { $env: { EXAMPLE: 'allowed' } };
 
-test('Rejects when code does something illegal', async () => {
-	const testCode = `
-		module.exports = function() {
-			return a + b;
-		};
-	`;
+		await expect(
+			runScript(
+				`module.exports = function (data) {
+					process.env.EXAMPLE = 'changed';
+					return { processEnv: process.env.EXAMPLE, dataEnv: data.$env.EXAMPLE };
+				};`,
+				data,
+			),
+		).resolves.toEqual({ processEnv: 'changed', dataEnv: 'changed' });
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('a is not defined');
-});
+		expect(data).toEqual({ $env: { EXAMPLE: 'allowed' } });
+	});
 
-test("Rejects when code doesn't return valid function", async () => {
-	const testCode = `
-		module.exports = false;
-	`;
+	it('uses an empty process.env object when data.$env is absent', async () => {
+		await expect(runScript(`module.exports = function () { return Object.keys(process.env); };`)).resolves.toEqual([]);
+	});
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('module.exports is not a function');
-});
+	it.each([
+		['log', 'info'],
+		['info', 'info'],
+		['warn', 'warn'],
+		['error', 'error'],
+		['trace', 'trace'],
+		['debug', 'debug'],
+	] as const)('forwards console.%s calls to logger.%s', async (consoleMethod, loggerMethod) => {
+		await runScript(`module.exports = function () {
+			console.${consoleMethod}('first', 'second');
+		};`);
 
-test('Rejects when returned function throws', async () => {
-	const testCode = `
-		module.exports = function () {
-			throw new Error('yup, this failed');
-		};
-	`;
+		expect(logger[loggerMethod]).toHaveBeenCalledWith(['first', 'second']);
+	});
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: {},
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('yup, this failed');
-});
+	it('unwraps a single console argument', async () => {
+		await runScript(`module.exports = function () { console.info({ value: 1 }); };`);
 
-test('Resolves when synchronous function is valid', async () => {
-	const testCode = `
-		module.exports = function (data) {
-			return { result: data.greeting + ', I ran synchronously' };
-		};
-	`;
+		expect(logger.info).toHaveBeenCalledWith({ value: 1 });
+	});
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: { greeting: 'Hello' },
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).resolves.toEqual({ result: 'Hello, I ran synchronously' });
-});
+	it('does not replace the host console', async () => {
+		const hostConsole = globalThis.console;
 
-test('Resolves when asynchronous function is valid', async () => {
-	const testCode = `
-		module.exports = async function (data) {
-			return { result: data.greeting + ', I ran asynchronously' };
-		};
-	`;
+		await runScript(`module.exports = function () { console.info('local'); };`);
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: { greeting: 'Hello' },
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).resolves.toEqual({ result: 'Hello, I ran asynchronously' });
-});
+		expect(globalThis.console).toBe(hostConsole);
+	});
 
-test('Rejects when wrong unit is passed to max memory config', async () => {
-	const testCode = `
-		module.exports = async function (data) {
-			return 1+1;
-		};
-	`;
+	it('rejects direct CommonJS require usage', async () => {
+		await expect(runScript(`const fs = require('node:fs');`)).rejects.toThrow('require is not defined');
+	});
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: { greeting: 'Hello' },
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 'thisShouldFail',
-				FLOWS_RUN_SCRIPT_TIMEOUT: 10000,
-			},
-		} as any),
-	).rejects.toThrow('`memoryLimit` must be a number');
-});
+	it('rejects static import syntax', async () => {
+		await expect(runScript(`import { readFileSync } from 'node:fs';`)).rejects.toThrow(
+			'Cannot use import statement outside a module',
+		);
+	});
 
-test('Rejects when wrong unit is passed to timeout config', async () => {
-	const testCode = `
-		module.exports = async function (data) {
-			return 1+1;
-		};
-	`;
+	it('allows access to host globals', async () => {
+		await expect(
+			runScript(`module.exports = function () {
+				return { runtime: globalThis.process.release.name };
+			};`),
+		).resolves.toEqual({ runtime: 'node' });
+	});
 
-	await expect(
-		config.handler({ code: testCode }, {
-			data: { greeting: 'Hello' },
-			env: {
-				FLOWS_RUN_SCRIPT_MAX_MEMORY: 8,
-				FLOWS_RUN_SCRIPT_TIMEOUT: 'thisShouldFail',
-			},
-		} as any),
-	).rejects.toThrow('`timeout` must be a 32-bit number');
+	it('rejects syntax errors', async () => {
+		await expect(runScript(`module.exports = function () {`)).rejects.toThrow(SyntaxError);
+	});
+
+	it('rejects errors thrown while initializing the module', async () => {
+		await expect(runScript(`throw new Error('setup failed');`)).rejects.toThrow('setup failed');
+	});
+
+	it('rejects a non-function module.exports value', async () => {
+		await expect(runScript(`module.exports = false;`)).rejects.toThrow('module.exports is not a function');
+	});
+
+	it('rejects errors thrown by the exported function', async () => {
+		await expect(runScript(`module.exports = function () { throw new Error('execution failed'); };`)).rejects.toThrow(
+			'execution failed',
+		);
+	});
 });

@@ -14,50 +14,31 @@ function unpackArgs(args: any[]) {
 
 export default defineOperationApi<Options>({
 	id: 'exec',
-	handler: async ({ code }, { data, env, logger }) => {
-		const { default: ivm } = await import('isolated-vm');
-		const allowedEnv = data['$env'] ?? {};
-		const isolateSizeMb = env['FLOWS_RUN_SCRIPT_MAX_MEMORY'];
-		const scriptTimeoutMs = env['FLOWS_RUN_SCRIPT_TIMEOUT'];
+	handler: async ({ code }, { data, logger }) => {
+		const module = { exports: {} as unknown };
+		const inputData = structuredClone(data);
+		const process = { env: inputData['$env'] ?? {} };
 
-		const isolate = new ivm.Isolate({ memoryLimit: isolateSizeMb });
-		const context = isolate.createContextSync();
-		const jail = context.global;
-		jail.setSync('global', jail.derefInto());
-		jail.setSync('process', { env: allowedEnv }, { copy: true });
-		jail.setSync('module', { exports: null }, { copy: true });
+		const console = {
+			log: (...args: any[]) => logger.info(unpackArgs(args)),
+			info: (...args: any[]) => logger.info(unpackArgs(args)),
+			warn: (...args: any[]) => logger.warn(unpackArgs(args)),
+			error: (...args: any[]) => logger.error(unpackArgs(args)),
+			trace: (...args: any[]) => logger.trace(unpackArgs(args)),
+			debug: (...args: any[]) => logger.debug(unpackArgs(args)),
+		};
 
-		jail.setSync(
-			'console',
-			{
-				log: new ivm.Callback((...args: any[]) => logger.info(unpackArgs(args)), { sync: true }),
-				info: new ivm.Callback((...args: any[]) => logger.info(unpackArgs(args)), { sync: true }),
-				warn: new ivm.Callback((...args: any[]) => logger.warn(unpackArgs(args)), { sync: true }),
-				error: new ivm.Callback((...args: any[]) => logger.error(unpackArgs(args)), { sync: true }),
-				trace: new ivm.Callback((...args: any[]) => logger.trace(unpackArgs(args)), { sync: true }),
-				debug: new ivm.Callback((...args: any[]) => logger.debug(unpackArgs(args)), { sync: true }),
-			},
-			{ copy: true },
-		);
+		// Run Script code is fully trusted administrator code. The local process and console values
+		// are convenience APIs, not isolation boundaries, so host globals remain accessible.
+		const initializeModule = new Function('module', 'exports', 'process', 'console', code);
+		initializeModule(module, module.exports, process, console);
 
-		// Run the operation once to define the module.exports function
-		await context.eval(code, { timeout: scriptTimeoutMs });
+		const exportedFunction = module.exports;
 
-		const inputData = new ivm.ExternalCopy({ data });
+		if (typeof exportedFunction !== 'function') {
+			throw new TypeError('module.exports is not a function');
+		}
 
-		const resultRef = await context.evalClosure(`return module.exports($0.data)`, [inputData.copyInto()], {
-			result: { reference: true, promise: true },
-			timeout: scriptTimeoutMs,
-		});
-
-		const result = await resultRef.copy();
-
-		// Memory cleanup
-		resultRef.release();
-		inputData.release();
-		context.release();
-		isolate.dispose();
-
-		return result;
+		return structuredClone(await exportedFunction(inputData));
 	},
 });
