@@ -1,10 +1,10 @@
-import { APP_EXTENSION_TYPES, type ExtensionType } from '@directus/extensions';
+import { APP_EXTENSION_TYPES, EXTENSION_TYPES, type ExtensionType } from '@directus/extensions';
 import { isIn } from '@directus/utils';
 
 export type MarketplaceTrustMode = 'app' | 'all';
 
 type MarketplaceExtensionPolicyInput = {
-	type: ExtensionType;
+	type: unknown;
 };
 
 type WarningLogger = {
@@ -31,6 +31,8 @@ export function isMarketplaceExtensionAllowed(
 	extension: MarketplaceExtensionPolicyInput,
 	mode: MarketplaceTrustMode,
 ): boolean {
+	if (!isMarketplaceExtensionType(extension.type)) return false;
+
 	const isAppExtension = isIn(extension.type, APP_EXTENSION_TYPES);
 
 	if (mode === 'app') return isAppExtension;
@@ -39,4 +41,8 @@ export function isMarketplaceExtensionAllowed(
 	// nem azt, hogy a kiválasztott artifact sandboxot kér. A biztonsági döntést
 	// ezért csak a letöltött nyers manifest autoritatív ellenőrzése hozhatja meg.
 	return true;
+}
+
+export function isMarketplaceExtensionType(value: unknown): value is ExtensionType {
+	return typeof value === 'string' && isIn(value, EXTENSION_TYPES);
 }
