@@ -93,6 +93,15 @@ validator for a given string.
 useful when an extension comprises several related sub-extensions that should be installed together. Bundles allow you
 to share dependencies among multiple extensions, significantly reducing file size.
 
+## Security and Trust
+
+API extensions, Hybrid extensions, and server-side entries in Bundles run as fully trusted code in the Directus process.
+They have the Directus server's operating-system permissions and can access its data, environment, network, file system,
+and installed modules. Directus does not provide a sandbox runtime for these extension types.
+
+Install server-side extensions only from sources you trust and after reviewing their code and release process. App-only
+extensions do not execute in the backend process, but their client-side code should still be reviewed before use.
+
 ::: tip Extensions Library
 
 Here's a [list of various extensions](https://github.com/directus-community/awesome-directus#extensions) created by the

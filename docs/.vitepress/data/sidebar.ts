@@ -2,7 +2,7 @@ import { formatTitle } from '@directus/format-title';
 import { readItems } from '@directus/sdk';
 import type { DefaultTheme } from 'vitepress';
 import typeDocSidebar from '../../packages/typedoc-sidebar.json';
-import { client } from '../lib/directus.js';
+import { client, skipRemoteDocsData } from '../lib/directus.js';
 import { sections as guideSections } from './guides.js';
 
 export default {
@@ -346,24 +346,6 @@ function sidebarDeveloperReference() {
 								{
 									link: '/extensions/bundles',
 									text: 'Bundles',
-								},
-							],
-						},
-						{
-							text: 'Sandboxed Extensions',
-							collapsed: true,
-							items: [
-								{
-									link: '/extensions/sandbox/introduction',
-									text: 'Introduction',
-								},
-								{
-									link: '/extensions/sandbox/register',
-									text: 'Registering Extensions',
-								},
-								{
-									link: '/extensions/sandbox/sandbox-sdk',
-									text: 'Sandbox SDK',
 								},
 							],
 						},
@@ -728,6 +710,16 @@ function typeDocSidebarFormat(item: DefaultTheme.SidebarItem) {
 }
 
 async function sidebarDirectusPlus() {
+	if (skipRemoteDocsData) {
+		return [
+			{
+				text: 'Directus Plus',
+				collapsed: false,
+				items: [{ text: 'Introduction', link: '/plus/introduction' }],
+			},
+		];
+	}
+
 	const sections = await client.request(
 		readItems('dplus_docs_sections', {
 			fields: ['*', { articles: ['title', 'slug'] }],

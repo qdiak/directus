@@ -19,8 +19,18 @@ There are three ways to install extensions to your Directus project:
 
 Extensions in the Directus Marketplace Registry are made available via the Marketplace section in the Settings Module.
 
-By default, App Extensions and [Sandboxed Extensions](/extensions/sandbox/introduction) are available from the
-Marketplace in all Directus projects (Directus Professional and Enterprise Cloud, and self-hosted).
+`MARKETPLACE_TRUST` controls which packages are visible and installable:
+
+- `app` is the default and allows only individual App Extensions.
+- `all` explicitly allows non-sandboxed API Extensions, Hybrid Extensions, and Bundles. Their server-side code runs with
+  the full permissions of the Directus server.
+- `sandbox` is a deprecated alias for `app` and emits a startup warning. It does not enable a sandbox runtime.
+
+The same policy is enforced by the Marketplace list, detail, and install API routes. A package that requests the sandbox
+runtime is rejected in every mode.
+
+This setting applies to Marketplace packages. API Extensions installed from npm or the Extensions Directory are also
+fully trusted backend code and should be installed only after review.
 
 <Card
 	title="User Guide"

@@ -108,10 +108,12 @@ built.
 
 ## Marketplace Requirements
 
-By default, App Extensions and [Sandboxed Extensions](/extensions/sandbox/introduction) are available from the
-[Directus Marketplace](/user-guide/marketplace/overview) in all Directus projects (Directus Professional and Enterprise
-Cloud, and self-hosted). If you are building an API or Hybrid extension and want to publish it to the Marketplace, it
-must use the Sandbox SDK.
+By default, the [Directus Marketplace](/user-guide/marketplace/overview) lists and installs only individual App
+Extensions. API Extensions, Hybrid Extensions, and Bundles contain server-side code and are not sandboxed.
+
+Self-hosted and supported Enterprise installations can explicitly opt in to trusted backend Marketplace packages with
+`MARKETPLACE_TRUST=all`. These packages run with the full permissions of the Directus backend. A package that requests
+the legacy sandbox runtime is rejected because sandboxed API extensions are not supported.
 
 ## Developing Your Extension
 

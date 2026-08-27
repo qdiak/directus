@@ -900,15 +900,15 @@ AUTH_FACEBOOK_LABEL="Facebook"
 
 ## Flows
 
-| Variable                      | Description                                                                                                      | Default Value |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------- |
-| `FLOWS_ENV_ALLOW_LIST`        | A comma-separated list of environment variables.                                                                 | `false`       |
-| `FLOWS_RUN_SCRIPT_MAX_MEMORY` | The maximum amount of memory the 'Run Script'-Operation can allocate in megabytes. A minimum of 8MB is required. | `32`          |
-| `FLOWS_RUN_SCRIPT_TIMEOUT`    | The maximum duration the 'Run Script'-Operation can run for in milliseconds.                                     | `10000`       |
+| Variable               | Description                                      | Default Value |
+| ---------------------- | ------------------------------------------------ | ------------- |
+| `FLOWS_ENV_ALLOW_LIST` | A comma-separated list of environment variables. | `false`       |
 
 ::: tip Usage in Flows Run Script Operation
 
-Allowed environment variables can be accessed through the `$env` within the passed `data` or through `process.env`.
+Allowed environment variables can be accessed through the `$env` within the passed `data` or through `process.env`. This
+allow-list is a convenience filter and not an isolation boundary: Run Script executes as trusted code in the Directus
+process.
 
 ```js
 const publicUrl = data['$env']['PUBLIC_URL'];
@@ -949,10 +949,10 @@ extensions from a storage location instead. Under the hood, they are synced into
 
 ## Marketplace
 
-| Variable               | Description                                       | Default Value                  |
-| ---------------------- | ------------------------------------------------- | ------------------------------ |
-| `MARKETPLACE_TRUST`    | One of `sandbox`, `all`                           | `sandbox`                      |
-| `MARKETPLACE_REGISTRY` | The registry to use for the Directus Marketplace. | `https://registry.directus.io` |
+| Variable               | Description                                                                                      | Default Value                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------ |
+| `MARKETPLACE_TRUST`    | One of `app` or `all`. The deprecated `sandbox` value aliases `app` and emits a startup warning. | `app`                          |
+| `MARKETPLACE_REGISTRY` | The registry to use for the Directus Marketplace.                                                | `https://registry.directus.io` |
 
 ## Synchronization
 

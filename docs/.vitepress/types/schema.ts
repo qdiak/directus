@@ -17,7 +17,7 @@ export interface DeveloperArticle {
 	status: string;
 	summary: string;
 	content: string;
-	author: Author;
+	author: Author | null;
 	contributors: Contributor[];
 	tags: DocsTagJunction[];
 }
