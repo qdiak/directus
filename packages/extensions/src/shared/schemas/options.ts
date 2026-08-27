@@ -36,6 +36,7 @@ export const ExtensionOptionsBundleEntry = z.union([
 		type: z.enum(API_EXTENSION_TYPES),
 		name: z.string(),
 		source: z.string(),
+		sandbox: ExtensionSandboxOptions,
 	}),
 	z.object({
 		type: z.enum(APP_EXTENSION_TYPES),
@@ -46,6 +47,7 @@ export const ExtensionOptionsBundleEntry = z.union([
 		type: z.enum(HYBRID_EXTENSION_TYPES),
 		name: z.string(),
 		source: SplitEntrypoint,
+		sandbox: ExtensionSandboxOptions,
 	}),
 ]);
 
@@ -81,6 +83,7 @@ export const ExtensionOptionsBundle = z.object({
 	partial: z.boolean().optional(),
 	path: SplitEntrypoint,
 	entries: z.array(ExtensionOptionsBundleEntry),
+	sandbox: ExtensionSandboxOptions,
 });
 
 export const ExtensionOptionsBundleEntries = z.array(ExtensionOptionsBundleEntry);
