@@ -20,6 +20,12 @@ const commandTimeout = Number(process.env['DIRECTUS_ARTIFACT_COMMAND_TIMEOUT_MS'
 const runtimeTimeout = Number(process.env['DIRECTUS_ARTIFACT_TIMEOUT_MS'] || 120_000);
 const killGrace = Number(process.env['DIRECTUS_ARTIFACT_KILL_GRACE_MS'] || 5_000);
 
+const expectedVersions = {
+	quantum_directus_app: '12.0.3-quantum.4',
+	quantum_directus_api: '19.0.3-quantum.4',
+	quantum_directus: '10.10.8-quantum.4',
+};
+
 if (typeof repositoryManifest.packageManager !== 'string') {
 	throw new Error('The repository packageManager version is required for the artifact consumer');
 }
@@ -112,6 +118,9 @@ try {
 		throw new Error(`Packed environment package name mismatch: ${String(packedEnvManifest.name)}`);
 	}
 
+	assertExactVersion(packedAppManifest, expectedVersions.quantum_directus_app);
+	assertExactVersion(packedApiManifest, expectedVersions.quantum_directus_api);
+	assertExactVersion(packedDirectusManifest, expectedVersions.quantum_directus);
 	assertBundledDependency(packedApiManifest, '@directus/env', packedEnvManifestPath);
 	await assertPackedEnvContract(requireFromPackedApi);
 
@@ -146,6 +155,12 @@ try {
 		console.log(`artifact-smoke-temp=${temporaryRoot}`);
 	} else {
 		await rm(temporaryRoot, { recursive: true, force: true });
+	}
+}
+
+function assertExactVersion(manifest, expectedVersion) {
+	if (manifest.version !== expectedVersion) {
+		throw new Error(`${manifest.name} must be ${expectedVersion}; received ${String(manifest.version)}`);
 	}
 }
 
