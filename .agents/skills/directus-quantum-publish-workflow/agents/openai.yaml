@@ -1,0 +1,4 @@
+interface:
+  display_name: "Directus Quantum közzététel"
+  short_description: "Quantum Directus verziófrissítés és kiadás"
+  default_prompt: "A $directus-quantum-publish-workflow használatával készítsd elő és ellenőrizd a Quantum Directus következő canary kiadását a megadott frissítési mód és célverziók szerint."
