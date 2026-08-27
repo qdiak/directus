@@ -1,7 +1,14 @@
+import { createError } from '@directus/errors';
 import { APP_EXTENSION_TYPES, EXTENSION_TYPES, type ExtensionType } from '@directus/extensions';
 import { isIn } from '@directus/utils';
 
 export type MarketplaceTrustMode = 'app' | 'all';
+export const SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE = 'Sandboxed API extensions are not supported.';
+export const SandboxedApiExtensionsUnsupportedError = createError(
+	'SANDBOXED_API_EXTENSIONS_UNSUPPORTED',
+	SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE,
+	400,
+);
 
 type MarketplaceExtensionPolicyInput = {
 	type: unknown;

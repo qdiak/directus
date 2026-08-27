@@ -13,16 +13,19 @@ import tar from 'tar';
 import { useLogger } from '../../../logger.js';
 import { getStorage } from '../../../storage/index.js';
 import { getExtensionsPath } from '../get-extensions-path.js';
+import { assertMarketplaceManifestAllowed } from '../marketplace-manifest-policy.js';
+import { resolveMarketplaceTrustMode, SandboxedApiExtensionsUnsupportedError } from '../marketplace-trust.js';
 
 const env = useEnv();
 
 export class InstallationManager {
 	constructor(public readonly extensionPath = getExtensionsPath()) {}
 
-	async install(versionId: string) {
+	async install(versionId: string, persistSettings?: () => Promise<void>) {
 		const logger = useLogger();
 		const tempDir = join(env['TEMP_PATH'] as string, 'marketplace', versionId);
 		const tmpStorage = new DriverLocal({ root: tempDir });
+		let settingsPersistenceFailed = false;
 
 		try {
 			await mkdir(tempDir, { recursive: true });
@@ -33,7 +36,7 @@ export class InstallationManager {
 				options.registry = env['MARKETPLACE_REGISTRY'];
 			}
 
-			const tarReadableStream = await download(versionId, env['MARKETPLACE_TRUST'] === 'sandbox', options);
+			const tarReadableStream = await download(versionId, false, options);
 
 			if (!tarReadableStream) {
 				throw new Error(`No readable stream returned from download`);
@@ -53,14 +56,30 @@ export class InstallationManager {
 				cwd: tempDir,
 			});
 
-			const packageFile = JSON.parse(
+			const packageFile: Record<string, unknown> = JSON.parse(
 				await readFile(join(tempDir, extractedPath, 'package.json'), { encoding: 'utf-8' }),
 			);
 
 			const extensionManifest = await ExtensionManifest.parseAsync(packageFile);
 
+			assertMarketplaceManifestAllowed(
+				extensionManifest,
+				packageFile,
+				resolveMarketplaceTrustMode(env['MARKETPLACE_TRUST']),
+			);
+
 			if (!extensionManifest[EXTENSION_PKG_KEY]?.type) {
 				throw new Error(`Extension type not found in package.json`);
+			}
+
+			// A beállítás csak a letöltött manifest teljes validációja után kerülhet az
+			// adatbázisba, de még az artifact mozgatása előtt. Így egy duplikált vagy
+			// részben sikertelen DB-írás nem írja felül és nem törli a már működő csomagot.
+			try {
+				await persistSettings?.();
+			} catch (error) {
+				settingsPersistenceFailed = true;
+				throw error;
 			}
 
 			if (env['EXTENSIONS_LOCATION']) {
@@ -91,6 +110,11 @@ export class InstallationManager {
 			}
 		} catch (err) {
 			logger.warn(err);
+
+			// A sandbox-policy és a már validált csomag settings-írása nem
+			// átmeneti registry-hiba. Ezek eredeti hibáját változatlanul kell
+			// továbbadni, hogy az adminisztrátor ne félrevezető 503-at kapjon.
+			if (settingsPersistenceFailed || err instanceof SandboxedApiExtensionsUnsupportedError) throw err;
 
 			throw new ServiceUnavailableError(
 				{ service: 'marketplace', reason: 'Could not download and extract the extension' },

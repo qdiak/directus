@@ -52,6 +52,7 @@ import { getExtensions } from './lib/get-extensions.js';
 import { getSharedDepsMapping } from './lib/get-shared-deps-mapping.js';
 import { getInstallationManager, resetInstallationManager } from './lib/installation/index.js';
 import type { InstallationManager } from './lib/installation/manager.js';
+import { SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE } from './lib/marketplace-trust.js';
 import { syncExtensions } from './lib/sync-extensions.js';
 import { wrapEmbeds } from './lib/wrap-embeds.js';
 import type { BundleConfig, ExtensionManagerOptions } from './types.js';
@@ -60,8 +61,6 @@ import type { BundleConfig, ExtensionManagerOptions } from './types.js';
 const virtual = virtualDefault as unknown as typeof virtualDefault.default;
 const alias = aliasDefault as unknown as typeof aliasDefault.default;
 const nodeResolve = nodeResolveDefault as unknown as typeof nodeResolveDefault.default;
-
-const SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE = 'Sandboxed API extensions are not supported.';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -258,10 +257,23 @@ export class ExtensionManager {
 	/**
 	 * Installs an external extension from registry
 	 */
-	public async install(versionId: string): Promise<void> {
-		await this.getConfiguredInstallationManager().install(versionId);
-		await this.reload({ forceSync: true });
-		await this.broadcastReloadNotification();
+	public async install(versionId: string, persistSettings?: () => Promise<void>): Promise<void> {
+		const installationManager = this.getConfiguredInstallationManager();
+		await installationManager.install(versionId, persistSettings);
+
+		try {
+			await this.reload({ forceSync: true });
+		} catch (error) {
+			if (persistSettings === undefined) throw error;
+
+			try {
+				await installationManager.uninstall(versionId);
+			} catch (cleanupError) {
+				throw new AggregateError([error, cleanupError], 'Failed to activate extension and clean up its artifact');
+			}
+
+			throw error;
+		}
 	}
 
 	public async uninstall(folder: string) {

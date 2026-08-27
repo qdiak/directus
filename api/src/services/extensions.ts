@@ -104,28 +104,28 @@ export class ExtensionsService {
 		let settingsCreated = false;
 
 		try {
-			await this.extensionsItemService.createOne({
-				id: extensionId,
-				enabled: true,
-				folder: versionId,
-				source: 'registry',
-				bundle: null,
+			await this.extensionsManager.install(versionId, async () => {
+				await this.extensionsItemService.createOne({
+					id: extensionId,
+					enabled: true,
+					folder: versionId,
+					source: 'registry',
+					bundle: null,
+				});
+
+				settingsCreated = true;
+
+				if (extension.data.type === 'bundle' && version.bundled.length > 0) {
+					await this.extensionsItemService.createMany(
+						version.bundled.map((entry) => ({
+							enabled: true,
+							folder: entry.name,
+							source: 'registry',
+							bundle: extensionId,
+						})),
+					);
+				}
 			});
-
-			settingsCreated = true;
-
-			if (extension.data.type === 'bundle' && version.bundled.length > 0) {
-				await this.extensionsItemService.createMany(
-					version.bundled.map((entry) => ({
-						enabled: true,
-						folder: entry.name,
-						source: 'registry',
-						bundle: extensionId,
-					})),
-				);
-			}
-
-			await this.extensionsManager.install(versionId);
 		} catch (error) {
 			if (settingsCreated) {
 				try {
@@ -137,6 +137,11 @@ export class ExtensionsService {
 
 			throw error;
 		}
+
+		// A többi host értesítése már a sikeresen aktivált állapot után történik.
+		// Bus-hiba esetén az install konzisztens marad, ezért ilyenkor nem szabad
+		// visszatörölni a lokálisan már betöltött artifactot és beállításait.
+		await this.extensionsManager.broadcastReloadNotification();
 	}
 
 	async uninstall(id: string) {
@@ -178,6 +183,7 @@ export class ExtensionsService {
 
 		await this.preInstall(extensionId, versionId);
 		await this.extensionsManager.install(versionId);
+		await this.extensionsManager.broadcastReloadNotification();
 	}
 
 	async readAll() {
