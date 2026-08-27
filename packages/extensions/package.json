@@ -15,13 +15,11 @@
 	"exports": {
 		".": "./dist/index.js",
 		"./node": "./dist/node.js",
-		"./package.json": "./package.json",
-		"./api.d.ts": "./api.d.ts"
+		"./package.json": "./package.json"
 	},
 	"main": "dist/index.js",
 	"files": [
-		"dist",
-		"api.d.ts"
+		"dist"
 	],
 	"scripts": {
 		"build": "pnpm run '/^build:.*/'",
