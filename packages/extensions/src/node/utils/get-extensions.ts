@@ -22,8 +22,12 @@ export function getExtensionDefinition(manifest: ExtensionManifest, meta: { path
 				app: extensionOptions.path.app,
 				api: extensionOptions.path.api,
 			},
-			entries: extensionOptions.entries.map((entry) => pick(entry, 'name', 'type')),
+			entries: extensionOptions.entries.map((entry) => ({
+				...pick(entry, 'name', 'type'),
+				sandbox: 'sandbox' in entry ? entry.sandbox : undefined,
+			})),
 			host: extensionOptions.host,
+			sandbox: extensionOptions.sandbox,
 			local,
 		};
 	} else if (isTypeIn(extensionOptions, HYBRID_EXTENSION_TYPES)) {

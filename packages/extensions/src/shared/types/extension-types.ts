@@ -43,6 +43,7 @@ export type HybridExtension = ExtensionBase & {
 export interface BundleExtensionEntry {
 	name: string;
 	type: AppExtensionType | ApiExtensionType | HybridExtensionType;
+	sandbox?: ExtensionSandboxOptions;
 }
 
 export type BundleExtension = ExtensionBase & {
@@ -50,6 +51,7 @@ export type BundleExtension = ExtensionBase & {
 	partial: boolean | undefined;
 	entrypoint: SplitEntrypoint;
 	entries: BundleExtensionEntry[];
+	sandbox?: ExtensionSandboxOptions;
 };
 
 export type Extension = AppExtension | ApiExtension | HybridExtension | BundleExtension;

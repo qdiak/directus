@@ -63,6 +63,8 @@ const virtual = virtualDefault as unknown as typeof virtualDefault.default;
 const alias = aliasDefault as unknown as typeof aliasDefault.default;
 const nodeResolve = nodeResolveDefault as unknown as typeof nodeResolveDefault.default;
 
+const SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE = 'Sandboxed API extensions are not supported.';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const env = useEnv();
@@ -669,6 +671,8 @@ export class ExtensionManager {
 			local: this.localExtensions,
 		} as const;
 
+		this.rejectSandboxedApiExtensions(Object.values(sources).flatMap((extensions) => [...extensions.values()]));
+
 		await Promise.all(
 			Object.entries(sources).map(async ([source, extensions]) => {
 				await Promise.all(
@@ -1037,6 +1041,22 @@ export class ExtensionManager {
 		} else {
 			logger.warn(reason);
 			if (error) logger.warn(error);
+		}
+	}
+
+	private rejectSandboxedApiExtensions(extensions: Extension[]): void {
+		for (const extension of extensions) {
+			const sandboxRequested =
+				extension.type === 'bundle'
+					? extension.sandbox?.enabled || extension.entries.some((entry) => entry.sandbox?.enabled)
+					: (extension.type === 'hook' || extension.type === 'endpoint' || extension.type === 'operation') &&
+						extension.sandbox?.enabled;
+
+			if (!sandboxRequested) continue;
+
+			// Sandbox manifests remain recognizable so operators always get this actionable startup error.
+			// This must bypass EXTENSIONS_MUST_LOAD because running the package unsandboxed would change its trust contract.
+			this.options.failureStrategy(new Error(SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE));
 		}
 	}
 }
