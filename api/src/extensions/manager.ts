@@ -27,7 +27,7 @@ import virtualDefault from '@rollup/plugin-virtual';
 import chokidar, { FSWatcher } from 'chokidar';
 import express, { Router } from 'express';
 import { clone, debounce, isPlainObject } from 'lodash-es';
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import os from 'node:os';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,8 +52,6 @@ import { getExtensions } from './lib/get-extensions.js';
 import { getSharedDepsMapping } from './lib/get-shared-deps-mapping.js';
 import { getInstallationManager, resetInstallationManager } from './lib/installation/index.js';
 import type { InstallationManager } from './lib/installation/manager.js';
-import { generateApiExtensionsSandboxEntrypoint } from './lib/sandbox/generate-api-extensions-sandbox-entrypoint.js';
-import { instantiateSandboxSdk } from './lib/sandbox/sdk/instantiate.js';
 import { syncExtensions } from './lib/sync-extensions.js';
 import { wrapEmbeds } from './lib/wrap-embeds.js';
 import type { BundleConfig, ExtensionManagerOptions } from './types.js';
@@ -604,66 +602,6 @@ export class ExtensionManager {
 		return null;
 	}
 
-	private async registerSandboxedApiExtension(extension: ApiExtension | HybridExtension) {
-		const logger = useLogger();
-		const { default: ivm } = await import('isolated-vm');
-
-		const sandboxMemory = Number(env['EXTENSIONS_SANDBOX_MEMORY']);
-		const sandboxTimeout = Number(env['EXTENSIONS_SANDBOX_TIMEOUT']);
-
-		const entrypointPath = path.resolve(
-			extension.path,
-			isTypeIn(extension, HYBRID_EXTENSION_TYPES) ? extension.entrypoint.api : extension.entrypoint,
-		);
-
-		const extensionCode = await readFile(entrypointPath, 'utf-8');
-
-		const isolate = new ivm.Isolate({
-			memoryLimit: sandboxMemory,
-			onCatastrophicError: (error) => {
-				logger.error(`Error in API extension sandbox of ${extension.type} "${extension.name}"`);
-				logger.error(error);
-
-				process.abort();
-			},
-		});
-
-		const context = await isolate.createContext();
-
-		const module = await isolate.compileModule(extensionCode, { filename: `file://${entrypointPath}` });
-
-		const sdkModule = await instantiateSandboxSdk(isolate, extension.sandbox?.requestedScopes ?? {});
-
-		await module.instantiate(context, (specifier) => {
-			if (specifier !== 'directus:api') {
-				throw new Error('Imports other than "directus:api" are prohibited in API extension sandboxes');
-			}
-
-			return sdkModule;
-		});
-
-		await module.evaluate({ timeout: sandboxTimeout });
-
-		const cb = await module.namespace.get('default', { reference: true });
-
-		const { code, hostFunctions, unregisterFunction } = generateApiExtensionsSandboxEntrypoint(
-			extension.type,
-			extension.name,
-			this.endpointRouter,
-		);
-
-		await context.evalClosure(code, [cb, ...hostFunctions.map((fn) => new ivm.Reference(fn))], {
-			timeout: sandboxTimeout,
-			filename: '<extensions-sandbox>',
-		});
-
-		this.unregisterFunctionMap.set(extension.name, async () => {
-			await unregisterFunction();
-
-			if (!isolate.isDisposed) isolate.dispose();
-		});
-	}
-
 	private async registerApiExtensions(): Promise<void> {
 		const sources = {
 			module: this.moduleExtensions,
@@ -707,25 +645,21 @@ export class ExtensionManager {
 
 	private async registerHookExtension(hook: ApiExtension) {
 		try {
-			if (hook.sandbox?.enabled) {
-				await this.registerSandboxedApiExtension(hook);
-			} else {
-				const hookPath = path.resolve(hook.path, hook.entrypoint);
+			const hookPath = path.resolve(hook.path, hook.entrypoint);
 
-				const hookInstance: HookConfig | { default: HookConfig } = await importFileUrl(hookPath, import.meta.url, {
-					fresh: true,
-				});
+			const hookInstance: HookConfig | { default: HookConfig } = await importFileUrl(hookPath, import.meta.url, {
+				fresh: true,
+			});
 
-				const config = getModuleDefault(hookInstance);
+			const config = getModuleDefault(hookInstance);
 
-				const unregisterFunctions = this.registerHook(config, hook.name);
+			const unregisterFunctions = this.registerHook(config, hook.name);
 
-				this.unregisterFunctionMap.set(hook.name, async () => {
-					await Promise.all(unregisterFunctions.map((fn) => fn()));
+			this.unregisterFunctionMap.set(hook.name, async () => {
+				await Promise.all(unregisterFunctions.map((fn) => fn()));
 
-					deleteFromRequireCache(hookPath);
-				});
-			}
+				deleteFromRequireCache(hookPath);
+			});
 		} catch (error) {
 			this.handleExtensionError({ error, reason: `Couldn't register hook "${hook.name}"` });
 		}
@@ -733,29 +667,25 @@ export class ExtensionManager {
 
 	private async registerEndpointExtension(endpoint: ApiExtension) {
 		try {
-			if (endpoint.sandbox?.enabled) {
-				await this.registerSandboxedApiExtension(endpoint);
-			} else {
-				const endpointPath = path.resolve(endpoint.path, endpoint.entrypoint);
+			const endpointPath = path.resolve(endpoint.path, endpoint.entrypoint);
 
-				const endpointInstance: EndpointConfig | { default: EndpointConfig } = await importFileUrl(
-					endpointPath,
-					import.meta.url,
-					{
-						fresh: true,
-					},
-				);
+			const endpointInstance: EndpointConfig | { default: EndpointConfig } = await importFileUrl(
+				endpointPath,
+				import.meta.url,
+				{
+					fresh: true,
+				},
+			);
 
-				const config = getModuleDefault(endpointInstance);
+			const config = getModuleDefault(endpointInstance);
 
-				const unregister = this.registerEndpoint(config, endpoint.name);
+			const unregister = this.registerEndpoint(config, endpoint.name);
 
-				this.unregisterFunctionMap.set(endpoint.name, async () => {
-					await unregister();
+			this.unregisterFunctionMap.set(endpoint.name, async () => {
+				await unregister();
 
-					deleteFromRequireCache(endpointPath);
-				});
-			}
+				deleteFromRequireCache(endpointPath);
+			});
 		} catch (error) {
 			this.handleExtensionError({ error, reason: `Couldn't register endpoint "${endpoint.name}"` });
 		}
@@ -763,29 +693,25 @@ export class ExtensionManager {
 
 	private async registerOperationExtension(operation: HybridExtension) {
 		try {
-			if (operation.sandbox?.enabled) {
-				await this.registerSandboxedApiExtension(operation);
-			} else {
-				const operationPath = path.resolve(operation.path, operation.entrypoint.api!);
+			const operationPath = path.resolve(operation.path, operation.entrypoint.api!);
 
-				const operationInstance: OperationApiConfig | { default: OperationApiConfig } = await importFileUrl(
-					operationPath,
-					import.meta.url,
-					{
-						fresh: true,
-					},
-				);
+			const operationInstance: OperationApiConfig | { default: OperationApiConfig } = await importFileUrl(
+				operationPath,
+				import.meta.url,
+				{
+					fresh: true,
+				},
+			);
 
-				const config = getModuleDefault(operationInstance);
+			const config = getModuleDefault(operationInstance);
 
-				const unregister = this.registerOperation(config);
+			const unregister = this.registerOperation(config);
 
-				this.unregisterFunctionMap.set(operation.name, async () => {
-					await unregister();
+			this.unregisterFunctionMap.set(operation.name, async () => {
+				await unregister();
 
-					deleteFromRequireCache(operationPath);
-				});
-			}
+				deleteFromRequireCache(operationPath);
+			});
 		} catch (error) {
 			this.handleExtensionError({ error, reason: `Couldn't register operation "${operation.name}"` });
 		}
