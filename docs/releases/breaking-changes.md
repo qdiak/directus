@@ -13,6 +13,30 @@ these to a minimum, but rest assured we only make them with good reason.
 
 Starting with Directus 10.0, here is a list of potential breaking changes with remedial action you may need to take.
 
+## Quantum 10.10.8-quantum.4
+
+### Run Script and API Extension Trust Model
+
+The Quantum fork no longer includes `isolated-vm`. Flow **Run Script** operations execute as fully trusted administrator
+code in the Directus process using a CommonJS `module.exports` function contract. Scripts can access host global objects
+and use dynamic imports, and there are no per-script memory or execution-time limits. Review every Run Script before
+upgrading; an infinite loop or excessive memory use can block or terminate the backend.
+
+Sandboxed Hooks, Endpoints, and Operations are no longer supported. A sandbox request in an extension manifest always
+blocks startup with `Sandboxed API extensions are not supported.`, regardless of `EXTENSIONS_MUST_LOAD`. Remove the
+extension, or convert it to a normal extension only after accepting that it will run with full backend permissions.
+
+The Marketplace now defaults to `MARKETPLACE_TRUST=app`, which exposes only individual App Extensions.
+`MARKETPLACE_TRUST=all` is an explicit opt-in to trusted, non-sandboxed API Extensions, Hybrid Extensions, and Bundles.
+The former `sandbox` value is a deprecated alias for `app` and emits a startup warning.
+
+No database migration is required. Remove these obsolete variables from deployment configuration:
+
+- `FLOWS_RUN_SCRIPT_MAX_MEMORY`
+- `FLOWS_RUN_SCRIPT_TIMEOUT`
+- `EXTENSIONS_SANDBOX_MEMORY`
+- `EXTENSIONS_SANDBOX_TIMEOUT`
+
 ## Version 10.10.0
 
 ### Deprecated Typed Extension Folders
@@ -345,7 +369,8 @@ The SDK helper function `asSearch` has been renamed to `withSearch` for naming c
 Prior to this release, Directus relied on `vm2` to run code from **Run Script** operations in Flows - our automation
 feature. `vm2` is now unmaintained with critical security issues that could potentially allow code to escape the sandbox
 and potentially access the machine which hosts your Directus project. We have migrated to `isolated-vm` to allow Flows
-to continue to run safely.
+to continue to run safely. This is historical behavior; the Quantum fork removes `isolated-vm` in `10.10.8-quantum.4` as
+described above.
 
 If you used to rely on axios, node-fetch, or other libraries to make web requests, we strongly recommend migrating to
 using the **Webhook / Request URL** operation instead. This operation includes additional security measures, like the IP

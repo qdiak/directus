@@ -2,6 +2,10 @@
 import { data } from '../../data/blog.data.js';
 import { getFriendlyDate } from '../../lib/date.js';
 import Badge from '../Badge.vue';
+
+function getAuthorName(author: (typeof data.blog.articles)[number]['author']) {
+	return author ? `${author.first_name} ${author.last_name}`.trim() : 'Directus';
+}
 </script>
 
 <template>
@@ -12,7 +16,7 @@ import Badge from '../Badge.vue';
 				v-for="article in data.blog.articles"
 				:key="article.id"
 				:title="article.title"
-				:author="article.author.first_name + ' ' + article.author.last_name"
+				:author="getAuthorName(article.author)"
 				:date="getFriendlyDate(article.date_published)"
 				:url="`/blog/${article.id}`"
 				:img="`https://marketing.directus.app/assets/${article.image}?key=card`"

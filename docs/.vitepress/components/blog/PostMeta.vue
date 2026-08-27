@@ -14,7 +14,7 @@ interface PostMetaProps {
 			last_name?: string;
 			avatar?: string;
 			title?: string;
-		};
+		} | null;
 		tags: {
 			title: string;
 			slug: string;
@@ -48,6 +48,10 @@ function getTag(person: Contributor) {
 		props: {},
 	};
 }
+
+function getAuthorName(author: PostMetaProps['params']['author']) {
+	return author ? `${author.first_name ?? ''} ${author.last_name ?? ''}`.trim() || 'Directus' : 'Directus';
+}
 </script>
 
 <template>
@@ -55,9 +59,9 @@ function getTag(person: Contributor) {
 	<Meta title-left="Written By" title-right="With Thanks To" title-bottom="Tags">
 		<template #left>
 			<Avatar
-				:image="`https://marketing.directus.app/assets/${params.author.avatar}?key=circle`"
-				:name="params.author.first_name + ' ' + params.author.last_name"
-				:title="params.author.title ?? 'Contributor'"
+				:image="params.author?.avatar ? `https://marketing.directus.app/assets/${params.author.avatar}?key=circle` : ''"
+				:name="getAuthorName(params.author)"
+				:title="params.author?.title ?? 'Contributor'"
 			/>
 		</template>
 

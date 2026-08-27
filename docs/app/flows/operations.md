@@ -54,14 +54,28 @@ with a condition that executes with a `reject` path, it will cancel your databas
 </video>
 -->
 
-This operation lets you add a custom script using vanilla JavaScript or TypeScript. The script will be executed securely
-in an isolated sandbox. No interactions take place between the sandbox and the host except for sharing input and output
-values. This means, for example, no access to the file system and no ability to do network requests.
+This operation runs custom JavaScript in the Directus process. The script uses a CommonJS contract and must assign a
+function to `module.exports`. Both synchronous and asynchronous functions are supported.
+
+::: danger Trusted Administrator Code
+
+Run Script code is not sandboxed. It can access host global objects and use dynamic imports to load host modules with
+the same operating-system permissions as Directus. There is no memory or execution-time limit: an infinite loop or
+excessive memory use can block or terminate the entire Directus process.
+
+Only trusted administrators should be allowed to create or modify Run Script operations. `FLOWS_ENV_ALLOW_LIST` and
+`data.$env` limit the convenience values copied into the local `process.env`; they are not security or isolation
+boundaries.
+
+:::
 
 **Options**
 
-The operation provides a default function template. The _optional_ `data` parameter lets you pass in the data chain as
-an argument.
+The operation provides a default function template. The _optional_ `data` parameter receives a structured clone of the
+data chain. The script can mutate this clone without changing the Flow's existing input values. The return value is also
+structured-cloned before it is appended to the data chain.
+
+The local `console` methods write to the Directus logger. The local `process.env` aliases `data.$env` as a convenience.
 
 **Payload**
 
@@ -108,7 +122,7 @@ The returned value will be appended under the `myScript` operation key.
 
 ::: tip
 
-Make sure your `return` value is valid JSON.
+Make sure your `return` value can be copied with structured cloning.
 
 :::
 
@@ -120,11 +134,11 @@ the original event transaction to the database.
 
 :::
 
-::: tip Node Modules
+::: tip Module Syntax
 
-To prevent unauthorized access to the underlying server, node modules can't be used in the **Run Script** operation. If
-you require a third party library for your custom script, you can create a custom
-[operation extension](/extensions/operations) instead.
+Static `import` statements and direct `require()` calls are not part of the supported Run Script contract. Dynamic
+`import()` can reach host modules. These syntax limitations are not security guarantees; use an audited custom
+[operation extension](/extensions/operations) when a script needs a maintained third-party dependency.
 
 :::
 

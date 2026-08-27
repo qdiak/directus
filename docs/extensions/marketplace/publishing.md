@@ -14,9 +14,8 @@ table {
 
 :::tip The Directus Marketplace is in Beta
 
-This feature is currently in Beta, and we need your feedback to make both the marketplace and
-[sandboxed extensions](/extensions/sandbox/introduction) better - join the `#marketplace-beta` channel on
-[Discord](https://directus.chat).
+This feature is currently in Beta, and we need your feedback to make the Marketplace better. Join the
+`#marketplace-beta` channel on [Discord](https://directus.chat).
 
 :::
 
@@ -139,15 +138,17 @@ include information from your GitHub profile, including profile image, name, loc
 
 ## Extension Types
 
-The Directus Marketplace will allow installation of all App extension types (Interfaces, Layouts, Displays, Panels,
-Modules, Themes) and [Sandboxed API/Hybrid extensions](/extensions/sandbox/introduction) (Endpoints, Hooks, Operations,
-Bundles).
+With the default `MARKETPLACE_TRUST=app` policy, the Directus Marketplace lists and installs only individual App
+extension types: Interfaces, Layouts, Displays, Panels, Modules, and Themes.
 
-:::info Non-Sandboxed Extensions
+::: danger Trusted Backend Extensions
 
-API/Hybrid extensions which are not sandboxed will not be available via the Marketplace by default in an effort to
-increase security and trust. They can be made available by setting the `MARKETPLACE_TRUST` environment variable to `all`
-(self-hosted and Enterprise Cloud).
+`MARKETPLACE_TRUST=all` explicitly enables non-sandboxed API Extensions, Hybrid Extensions, and Bundles for self-hosted
+and supported Enterprise installations. Their server-side code runs with the full permissions of the Directus backend.
+Audit a package before enabling or installing it.
+
+Packages that request the legacy sandbox runtime are rejected even in `all` mode because sandboxed API extensions are
+not supported.
 
 :::
 
@@ -195,11 +196,8 @@ in touch with marketplace@directus.io?
 
 ## Feedback
 
-The Marketplace is in Beta and there's still work to do. Here's what we know is required:
-
-1. Allowing global options for all extension types to allow for custom data such as API Keys/Tokens for third-party
-   services.
-2. Improvements to Sandboxed Extensions to allow CRUD access to collection items.
+The Marketplace is in Beta and there's still work to do, including allowing global options for extension types that need
+custom data such as API keys or tokens for third-party services.
 
 We welcome more feedback to make the Directus Marketplace better. Join the `#marketplace-beta` channel on
 [Discord](https://directus.chat) to participate.

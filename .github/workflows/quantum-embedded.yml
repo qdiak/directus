@@ -74,6 +74,11 @@ jobs:
         env:
           npm_config_workspace_concurrency: '1'
 
+      - name: Build documentation
+        run: pnpm --filter docs build:typedocs && pnpm --filter docs build:docs
+        env:
+          DOCS_SKIP_REMOTE_DATA: 'true'
+
   blackbox:
     name: Quantum Embedded / Flow (${{ matrix.vendor }})
     runs-on: ${{ matrix.vendor == 'mssql' && 'ubuntu-20.04' || 'ubuntu-latest' }}

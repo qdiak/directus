@@ -44,6 +44,6 @@ module.exports = async function (data) {
 
 ## Final Tips
 
-Remember, the returned value doesn't need to be a string. You can append any valid JSON onto the data chain. You could
-take in an array of strings, slugify all of them, push each to a new array, and append it onto the data chain... _or
-whatever your use-case calls for!_
+Remember, the returned value doesn't need to be a string. You can append any value that supports structured cloning onto
+the data chain. You could take in an array of strings, slugify all of them, push each to a new array, and append it onto
+the data chain... _or whatever your use-case calls for!_

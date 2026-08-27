@@ -1,53 +1,29 @@
 ---
-description: Learn about the Directus Sandboxed Extensions Framework to isolate and build trust in your extensions.
+description: Migrate API extensions that request the removed sandbox runtime.
 contributors: Nils Twelker, Kevin Lewis, Esther Agbaje
 ---
 
-# Sandboxed Extensions
+# Sandboxed API Extensions Are Not Supported
 
-The Sandboxed Extensions Framework is designed to provide robust security to your data and maintain strict control over
-interactions with the external environment by running extension code in an isolated _sandbox_. The main purpose of this
-sandbox is to allow configurations that limit how extensions access your information and communicate externally.
+Directus no longer includes a sandbox runtime for API Extensions, Hybrid Extensions, or server-side Bundle entries. When
+a Hook, Endpoint, or Operation manifest requests the sandbox runtime, startup stops with this error:
 
-The Sandboxed Extensions Framework is available for API and Hybrid Extensions.
-
-## Understanding the Sandbox
-
-The sandbox is a secure environment to evaluate and execute extensions. The environment is given capabilities via
-virtual functions exposed through the `directus:api` module. Each function that's called through this isolate is checked
-against the extension's configured permissions, making sure extensions aren't able to access any private data without
-explicit consent.
-
-Isolates only have access to
-[JavaScript standard built-in objects](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects).
-This means that common runtime functions such as `console` and `setTimeout` are not available.
-
-## Creating Sandboxed Extensions
-
-To mark your extension to use the sandbox, add the `sandbox` configuration to your extension's `package.json` file, and
-set enabled to `true` as follows:
-
-```json{6-9}
-"directus:extension": {
-	"type": "endpoint",
-	"path": "dist/index.js",
-	"source": "src/index.js",
-	"host": "^10.7.0",
-	"sandbox": {
-		"enabled": true,
-		"requestedScopes": {}
-	}
-}
+```text
+Sandboxed API extensions are not supported.
 ```
 
-## Registering Extensions
+This startup failure is intentional and applies regardless of `EXTENSIONS_MUST_LOAD`. It prevents a package from
+silently running with broader permissions than its manifest requested.
 
-While the way individual extensions are instantiated is very similar to non-sandboxed extensions, there's some subtle
-differences to be aware of given the difference of runtime. Please refer to
-[Registering Extensions](/extensions/sandbox/register) for examples for each extension type.
+Marketplace packages that request the sandbox runtime are also rejected in every Marketplace trust mode. The deprecated
+`MARKETPLACE_TRUST=sandbox` value is only an alias for `MARKETPLACE_TRUST=app`; it emits a startup warning and does not
+restore sandbox execution.
 
-## Permissions & Execution Types
+## Migration
 
-The `requestedScopes` object controls what function scopes your extension requests to use, and what permissions your
-extension needs for each of those scopes. Please refer to [Sandbox SDK](/extensions/sandbox/sandbox-sdk) for a reference
-of all supported scopes.
+Remove sandboxed API extensions before upgrading. If an extension is still required, review its complete source and
+dependency chain, remove the sandbox request, and deploy it only if you are prepared to trust it with the full
+permissions of the Directus backend process.
+
+There is no automatic or permission-preserving migration from the former Sandbox SDK. Replace Sandbox SDK calls with
+normal extension APIs only after the extension has passed that security review.

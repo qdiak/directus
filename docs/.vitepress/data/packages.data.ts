@@ -14,7 +14,11 @@ export default defineLoader({
 				.map(({ manifest: { name, version } }) => [name, { version: getDetailedVersion(version) }]),
 		);
 
-		return packages;
+		// A dokumentáció sablonjai az upstream `directus` kulcsot használják. A Quantum fork
+		// átnevezett csomagját ezen az aliason adjuk át, hogy a közös oldalak változatlanok maradjanak.
+		const directusPackage = packages['directus'] ?? packages['quantum_directus'];
+
+		return directusPackage ? { ...packages, directus: directusPackage } : packages;
 	},
 });
 

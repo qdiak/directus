@@ -87,7 +87,7 @@ While this method works and is maintained, it is not recommended. Docker removes
 lead to Directus not running properly in some contexts.
 
 Running Directus without Docker may result in errors as a result of environment-specific characteristics. In such a
-case, make sure you have the required system dependencies for `isolated-vm`, `sharp`, and `argon2` installed.
+case, make sure you have the required system dependencies for `sharp` and `argon2` installed.
 
 :::
 

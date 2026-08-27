@@ -1,8 +1,29 @@
 import { readItems } from '@directus/sdk';
-import { client } from '../../.vitepress/lib/directus.js';
+import { client, skipRemoteDocsData } from '../../.vitepress/lib/directus.js';
 
 export default {
 	async paths() {
+		if (skipRemoteDocsData) {
+			return [
+				{
+					params: {
+						slug: 'offline-build',
+						title: 'Offline build fixture',
+						type: 'content',
+						articles: [
+							{
+								title: 'Offline build fixture',
+								slug: 'offline-build',
+								date_published: '2024-01-01T00:00:00.000Z',
+								image: '',
+								author: null,
+							},
+						],
+					},
+				},
+			];
+		}
+
 		const tags = (
 			await client.request(
 				readItems('docs_tags', {
