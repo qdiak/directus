@@ -86,7 +86,7 @@ export const DEFAULTS = {
 	EMAIL_SENDMAIL_PATH: '/usr/sbin/sendmail',
 	EMAIL_TEMPLATES_PATH: './templates',
 
-	MARKETPLACE_TRUST: 'sandbox',
+	MARKETPLACE_TRUST: 'app',
 
 	TELEMETRY: true,
 	TELEMETRY_URL: 'https://telemetry.directus.io',

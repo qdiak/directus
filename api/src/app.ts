@@ -50,6 +50,7 @@ import {
 } from './database/index.js';
 import emitter from './emitter.js';
 import { getExtensionManager } from './extensions/index.js';
+import { resolveMarketplaceTrustMode, warnOnLegacyMarketplaceTrust } from './extensions/lib/marketplace-trust.js';
 import type { ExtensionManager } from './extensions/manager.js';
 import type { ExtensionManagerOptions } from './extensions/types.js';
 import { getFlowManager } from './flows.js';
@@ -129,6 +130,8 @@ export async function createManagedApp(
 	const extensionOptions = options.extensionsPath === undefined ? {} : { extensionsPath: options.extensionsPath };
 
 	validateEnv(['KEY', 'SECRET']);
+	resolveMarketplaceTrustMode(env['MARKETPLACE_TRUST']);
+	warnOnLegacyMarketplaceTrust(env['MARKETPLACE_TRUST'], logger);
 	initializeRateLimiter();
 	initializeGlobalRateLimiter();
 	await initializeCacheStore();
