@@ -57,6 +57,9 @@
 	"files": [
 		"dist"
 	],
+	"bundledDependencies": [
+		"@directus/env"
+	],
 	"scripts": {
 		"build": "tsc --project tsconfig.prod.json && copyfiles \"src/**/*.{yaml,liquid}\" -u 1 dist",
 		"check:changed": "node scripts/check-changed-files.mjs",
