@@ -1,3 +1,9 @@
+const quantumRunScriptTests = [
+	'/tests/db/seed-database.test.ts',
+	'/common/common.test.ts',
+	'/tests/db/routes/flows/run-script.test.ts',
+];
+
 // Tests will run sequentially according to this list
 export const sequentialTestsList: Record<'db' | 'common', SequentialTestsList> = {
 	common: {
@@ -24,15 +30,13 @@ export const sequentialTestsList: Record<'db' | 'common', SequentialTestsList> =
 			'/tests/db/websocket/general.test.ts',
 			'/tests/db/routes/permissions/cache-purge.test.ts',
 			'/tests/db/routes/flows/webhook.test.ts',
+			'/tests/db/routes/flows/run-script.test.ts',
 			'/tests/db/app/cache.test.ts',
 			'/tests/db/routes/collections/schema-cache.test.ts',
 			'/tests/db/routes/assets/concurrency.test.ts',
 		],
 		// If specified, only run these tests sequentially
-		only: [
-			// '/tests/db/seed-database.test.ts',
-			// '/common/common.test.ts',
-		],
+		only: [...(process.env['QUANTUM_RUN_SCRIPT_BLACKBOX'] === 'true' ? quantumRunScriptTests : [])],
 	},
 };
 
