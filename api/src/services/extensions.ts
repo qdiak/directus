@@ -7,6 +7,11 @@ import { isObject } from '@directus/utils';
 import type { Knex } from 'knex';
 import getDatabase from '../database/index.js';
 import { getExtensionManager } from '../extensions/index.js';
+import {
+	filterMarketplaceRegistryDetail,
+	listMarketplaceRegistry,
+} from '../extensions/lib/marketplace-registry-policy.js';
+import { resolveMarketplaceTrustMode } from '../extensions/lib/marketplace-trust.js';
 import type { ExtensionManager } from '../extensions/manager.js';
 import type { AbstractServiceOptions } from '../types/index.js';
 import { transaction } from '../utils/transaction.js';
@@ -49,7 +54,23 @@ export class ExtensionsService {
 			describeOptions.registry = env['MARKETPLACE_REGISTRY'];
 		}
 
-		const extension = await describe(extensionId, describeOptions);
+		const mode = resolveMarketplaceTrustMode(env['MARKETPLACE_TRUST']);
+
+		const [unfilteredExtension, summaries] = await Promise.all([
+			describe(extensionId, describeOptions),
+			listMarketplaceRegistry({ search: extensionId, limit: 100 }, describeOptions, mode),
+		]);
+
+		const extension = filterMarketplaceRegistryDetail(
+			unfilteredExtension,
+			summaries.data.find((summary) => summary.id === extensionId),
+			mode,
+		);
+
+		if (extension === null) {
+			throw new ForbiddenError();
+		}
+
 		const version = extension.data.versions.find((version) => version.id === versionId);
 
 		if (!version) {
@@ -80,27 +101,42 @@ export class ExtensionsService {
 
 	async install(extensionId: string, versionId: string) {
 		const { extension, version } = await this.preInstall(extensionId, versionId);
+		let settingsCreated = false;
 
-		await this.extensionsItemService.createOne({
-			id: extensionId,
-			enabled: true,
-			folder: versionId,
-			source: 'registry',
-			bundle: null,
-		});
+		try {
+			await this.extensionsItemService.createOne({
+				id: extensionId,
+				enabled: true,
+				folder: versionId,
+				source: 'registry',
+				bundle: null,
+			});
 
-		if (extension.data.type === 'bundle' && version.bundled.length > 0) {
-			await this.extensionsItemService.createMany(
-				version.bundled.map((entry) => ({
-					enabled: true,
-					folder: entry.name,
-					source: 'registry',
-					bundle: extensionId,
-				})),
-			);
+			settingsCreated = true;
+
+			if (extension.data.type === 'bundle' && version.bundled.length > 0) {
+				await this.extensionsItemService.createMany(
+					version.bundled.map((entry) => ({
+						enabled: true,
+						folder: entry.name,
+						source: 'registry',
+						bundle: extensionId,
+					})),
+				);
+			}
+
+			await this.extensionsManager.install(versionId);
+		} catch (error) {
+			if (settingsCreated) {
+				try {
+					await this.deleteOne(extensionId);
+				} catch (cleanupError) {
+					throw new AggregateError([error, cleanupError], 'Failed to install extension and clean up its settings');
+				}
+			}
+
+			throw error;
 		}
-
-		await this.extensionsManager.install(versionId);
 	}
 
 	async uninstall(id: string) {

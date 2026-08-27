@@ -4,7 +4,6 @@ import { EXTENSION_TYPES } from '@directus/extensions';
 import {
 	account,
 	describe,
-	list,
 	type AccountOptions,
 	type DescribeOptions,
 	type ListOptions,
@@ -14,6 +13,11 @@ import { isIn } from '@directus/utils';
 import express from 'express';
 import { UUID_REGEX } from '../constants.js';
 import { getExtensionManager } from '../extensions/index.js';
+import {
+	filterMarketplaceRegistryDetail,
+	listMarketplaceRegistry,
+} from '../extensions/lib/marketplace-registry-policy.js';
+import { resolveMarketplaceTrustMode } from '../extensions/lib/marketplace-trust.js';
 import { respond } from '../middleware/respond.js';
 import useCollection from '../middleware/use-collection.js';
 import { ExtensionReadError, ExtensionsService } from '../services/extensions.js';
@@ -80,17 +84,17 @@ router.get(
 			query.type = type;
 		}
 
-		if (env['MARKETPLACE_TRUST'] === 'sandbox') {
-			query.sandbox = true;
-		}
-
 		const options: ListOptions = {};
 
 		if (env['MARKETPLACE_REGISTRY'] && typeof env['MARKETPLACE_REGISTRY'] === 'string') {
 			options.registry = env['MARKETPLACE_REGISTRY'];
 		}
 
-		const payload = await list(query, options);
+		const payload = await listMarketplaceRegistry(
+			query,
+			options,
+			resolveMarketplaceTrustMode(env['MARKETPLACE_TRUST']),
+		);
 
 		res.locals['payload'] = payload;
 		return next();
@@ -132,7 +136,22 @@ router.get(
 			options.registry = env['MARKETPLACE_REGISTRY'];
 		}
 
-		const payload = await describe(req.params['pk'], options);
+		const mode = resolveMarketplaceTrustMode(env['MARKETPLACE_TRUST']);
+
+		const [detail, summaries] = await Promise.all([
+			describe(req.params['pk'], options),
+			listMarketplaceRegistry({ search: req.params['pk'], limit: 100 }, options, mode),
+		]);
+
+		const payload = filterMarketplaceRegistryDetail(
+			detail,
+			summaries.data.find((extension) => extension.id === req.params['pk']),
+			mode,
+		);
+
+		if (payload === null) {
+			throw new RouteNotFoundError({ path: req.path });
+		}
 
 		res.locals['payload'] = payload;
 		return next();
