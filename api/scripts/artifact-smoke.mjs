@@ -21,9 +21,9 @@ const runtimeTimeout = Number(process.env['DIRECTUS_ARTIFACT_TIMEOUT_MS'] || 120
 const killGrace = Number(process.env['DIRECTUS_ARTIFACT_KILL_GRACE_MS'] || 5_000);
 
 const expectedVersions = {
-	quantum_directus_app: '12.0.3-quantum.4',
-	quantum_directus_api: '19.0.3-quantum.4',
-	quantum_directus: '10.10.8-quantum.4',
+	quantum_directus_app: '12.0.3-quantum.5',
+	quantum_directus_api: '19.0.3-quantum.5',
+	quantum_directus: '10.10.8-quantum.5',
 };
 
 if (typeof repositoryManifest.packageManager !== 'string') {
