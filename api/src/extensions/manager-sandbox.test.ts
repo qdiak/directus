@@ -39,6 +39,7 @@ const extensions = (['hook', 'endpoint', 'operation'] as const).map((type) => {
 
 const sandboxedBundles = (['bundle', 'entry'] as const).map((sandboxLocation) => {
 	const name = `sandboxed-bundle-${sandboxLocation}`;
+
 	const sandboxedEntry = {
 		type: 'endpoint',
 		name: 'nested-endpoint',

@@ -988,7 +988,7 @@ export class ExtensionManager {
 				extension.type === 'bundle'
 					? extension.sandbox?.enabled || extension.entries.some((entry) => entry.sandbox?.enabled)
 					: (extension.type === 'hook' || extension.type === 'endpoint' || extension.type === 'operation') &&
-						extension.sandbox?.enabled;
+					  extension.sandbox?.enabled;
 
 			if (!sandboxRequested) continue;
 

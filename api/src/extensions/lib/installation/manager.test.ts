@@ -93,6 +93,7 @@ describe('InstallationManager marketplace validation order', () => {
 		const error = await manager.install(versionId, persistSettings).catch((error: unknown) => error);
 
 		expect(error).toBeInstanceOf(SandboxedApiExtensionsUnsupportedError);
+
 		expect(error).toMatchObject({
 			code: 'SANDBOXED_API_EXTENSIONS_UNSUPPORTED',
 			message: SANDBOXED_API_EXTENSIONS_UNSUPPORTED_MESSAGE,
