@@ -1,18 +1,17 @@
 name: Publish Quantum packages
 
-# ÁTMENETI(quantum.3): ez a tag-gate a három előkészített .3 csomag egyszeri,
+# ÁTMENETI(quantum.4): ez a tag-gate a három előkészített .4 csomag egyszeri,
 # idempotensen újrafuttatható kiadását védi. A kiadás lezárása után törlendő,
 # vagy külön döntéssel általános, manifestből verziózott Quantum release flow-vá alakítandó.
 
 on:
   # A workflow_dispatch csak akkor hívható API-ból, ha ez a workflow már a
   # repository default branchén is létezik. A fork release branchét ezért egy
-  # pontos, egyszer használható, nem upstream-v* retry tag aktiválja. Az első
-  # tag pnpm CLI-hívása még publikálás előtt hibázott; azt nem mozgatjuk át.
-  # Más tag vagy későbbi Quantum verzió nem örökli ezt a felhatalmazást.
+  # pontos, egyszer használható, nem upstream-v* tag aktiválja. Más tag vagy
+  # későbbi Quantum verzió nem örökli ezt a felhatalmazást.
   push:
     tags:
-      - quantum-publish/10.10.8-quantum.3-retry-1
+      - quantum-publish/10.10.8-quantum.4
 permissions:
   actions: read
   contents: read
@@ -25,7 +24,7 @@ concurrency:
 jobs:
   publish:
     name: Publish Quantum package trio
-    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.3-retry-1'
+    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.4'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -39,13 +38,13 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: 131b8a56af1e80f39dc7924a370a732f677064f7
+          AUTHORIZED_PARENT_SHA: fedb324ef04be0c217b5a0b88dc9ddfd1b0d350b
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
           changed_files="$(git diff --name-only "$AUTHORIZED_PARENT_SHA" "$actual_sha")"
 
-          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.3-retry-1' ]; then
+          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.4' ]; then
             echo "Refusing unexpected release tag: $GITHUB_REF" >&2
             exit 1
           fi
@@ -127,7 +126,7 @@ jobs:
           npm_config_workspace_concurrency: '1'
 
       # A Quantum verziók prerelease-ek: a canary tag publikálhatóvá teszi az
-      # exact .3 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
+      # exact .4 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
       # A csomagonkénti ellenőrzés egy részben sikerült kiadás biztonságos
       # folytatását is lehetővé teszi ugyanarról a változatlan commitról.
       - name: Publish exact Quantum package trio
@@ -154,9 +153,9 @@ jobs:
               --tag canary
           }
 
-          publish_if_missing app quantum_directus_app 12.0.3-quantum.3
-          publish_if_missing api quantum_directus_api 19.0.3-quantum.3
-          publish_if_missing directus quantum_directus 10.10.8-quantum.3
+          publish_if_missing app quantum_directus_app 12.0.3-quantum.4
+          publish_if_missing api quantum_directus_api 19.0.3-quantum.4
+          publish_if_missing directus quantum_directus 10.10.8-quantum.4
 
       - name: Verify published versions and tags
         run: |
@@ -178,6 +177,6 @@ jobs:
             fi
           }
 
-          verify_release quantum_directus_app 12.0.3-quantum.3
-          verify_release quantum_directus_api 19.0.3-quantum.3
-          verify_release quantum_directus 10.10.8-quantum.3
+          verify_release quantum_directus_app 12.0.3-quantum.4
+          verify_release quantum_directus_api 19.0.3-quantum.4
+          verify_release quantum_directus 10.10.8-quantum.4
