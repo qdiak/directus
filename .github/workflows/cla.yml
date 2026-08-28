@@ -12,6 +12,9 @@ permissions:
 jobs:
   check:
     name: Check
+    # The CLA belongs to the upstream Directus contribution process. Fork-owned
+    # pull requests must not require contributors to sign an unrelated agreement.
+    if: github.repository == 'directus/directus'
     runs-on: ubuntu-latest
     steps:
       - id: check
