@@ -152,7 +152,7 @@ async function createManualRunScriptFlow(
 			name,
 			icon: 'bolt',
 			status: 'active',
-			accountability: null,
+			accountability: 'all',
 			trigger: 'manual',
 			options: { collections: ['tests_flow_data'] },
 		});

@@ -62,6 +62,28 @@ try {
 
 	assert.deepEqual(loggerCalls, [['info', 'packed trusted script']]);
 
+	const request = {
+		headers: new Proxy({ authorization: 'Bearer packed-test' }, {}),
+	};
+
+	const adapterRecordResult = await operation.handler(
+		{
+			code: `
+				module.exports = function (data) {
+					data.$trigger.headers.authorization = 'script-mutated';
+					return {
+						authorization: data.$trigger.headers.authorization,
+						sameRequest: data.$trigger === data.$last,
+					};
+				};
+			`,
+		},
+		{ data: { $trigger: request, $last: request }, logger },
+	);
+
+	assert.deepEqual(adapterRecordResult, { authorization: 'script-mutated', sameRequest: true });
+	assert.equal(request.headers.authorization, 'Bearer packed-test');
+
 	const asyncResult = await operation.handler(
 		{
 			code: `

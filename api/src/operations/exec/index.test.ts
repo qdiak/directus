@@ -60,6 +60,27 @@ describe('Run Script operation', () => {
 		expect(data).toEqual({ nested: { value: 'before' } });
 	});
 
+	it('normalizes adapter-backed records before crossing the structured clone boundary', async () => {
+		const headers = new Proxy({ authorization: 'Bearer test-token', 'content-type': 'application/json' }, {});
+		const request = { headers };
+		const data = { $trigger: request, $last: request };
+
+		await expect(
+			runScript(
+				`module.exports = function (data) {
+					data.$trigger.headers.authorization = 'changed';
+					return {
+						authorization: data.$trigger.headers.authorization,
+						sameRequest: data.$trigger === data.$last,
+					};
+				};`,
+				data,
+			),
+		).resolves.toEqual({ authorization: 'changed', sameRequest: true });
+
+		expect(headers.authorization).toBe('Bearer test-token');
+	});
+
 	it('returns a structured clone of the exported function result', async () => {
 		const result = await runScript(`module.exports = function () {
 			const output = { nested: { value: 'before' } };
