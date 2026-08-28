@@ -75,6 +75,7 @@ describe('marketplace manifest policy', () => {
 
 	it('rejects a sandbox marker on a bundle API entry', () => {
 		const rawManifest = createRawManifest('bundle');
+
 		rawManifest[EXTENSION_PKG_KEY].entries[0] = {
 			type: 'endpoint',
 			name: 'bundle-endpoint',

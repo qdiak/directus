@@ -121,6 +121,7 @@ describe('marketplace registry policy', () => {
 
 	it('keeps a sandbox-compatible App-only bundle visible in all mode', () => {
 		const summary = createSummary('extension', 'bundle', true);
+
 		const detail = createDetail('extension', [
 			{
 				id: 'app-only-bundle',

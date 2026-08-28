@@ -85,6 +85,7 @@ const mockRegistryExtension = (
 	bundled: Array<{ name: string; type: ExtensionType }> = [],
 ) => {
 	registryDescribe.mockResolvedValue(createRegistryDetail(type, bundled));
+
 	registryList.mockResolvedValue({
 		meta: { filter_count: 1 },
 		data: [createRegistrySummary(type, sandbox)],
@@ -139,10 +140,12 @@ describe('ExtensionsService marketplace install cleanup', () => {
 		const { service, extensionsItemService, extensionsManager } = createService();
 
 		env['MARKETPLACE_TRUST'] = 'all';
+
 		mockRegistryExtension('bundle', false, [
 			{ name: 'bundle-interface', type: 'interface' },
 			{ name: 'bundle-endpoint', type: 'endpoint' },
 		]);
+
 		extensionsManager.install.mockImplementation(async (_versionId, persistSettings) => persistSettings());
 
 		await expect(service.install('extension-id', 'version-id')).resolves.toBeUndefined();
