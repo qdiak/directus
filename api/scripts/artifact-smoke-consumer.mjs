@@ -73,11 +73,28 @@ try {
 
 	activeHandle = await api.createEmbeddedApp(options);
 	assert.equal(typeof activeHandle.middleware, 'function');
+	assert.equal(typeof activeHandle.createRequestContext, 'function');
 	assert.notEqual((await activeHandle.health()).status, 'error');
+
+	const requestContext = await activeHandle.createRequestContext({
+		cookies: {},
+		get: () => undefined,
+		headers: {},
+		ip: '127.0.0.1',
+		query: {},
+	});
+
+	assert.equal(requestContext.accountability.admin, false);
+	assert.equal(requestContext.accountability.app, false);
+	assert.equal(requestContext.accountability.user, null);
+	assert.equal(typeof requestContext.database.select, 'function');
+	assert.equal(typeof requestContext.getSchema, 'function');
+	assert.equal(typeof requestContext.services.ItemsService, 'function');
 
 	const firstClose = activeHandle.close();
 	const secondClose = activeHandle.close();
 	assert.equal(secondClose, firstClose, 'close must return the same in-flight promise');
+	assert.throws(() => activeHandle.createRequestContext({}), /closing or closed/);
 	await Promise.all([firstClose, secondClose]);
 	activeHandle = undefined;
 

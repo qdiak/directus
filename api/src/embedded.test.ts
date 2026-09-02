@@ -1,4 +1,4 @@
-import type { Application } from 'express';
+import type { Application, Request } from 'express';
 import http from 'node:http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLifecycleState, setLifecycleState } from './lifecycle.js';
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	closeExtensionManager: vi.fn(),
 	closeFlowManager: vi.fn(),
 	closeRuntimeResources: vi.fn(),
+	createAuthenticatedRequestContext: vi.fn(),
 	createManagedApp: vi.fn(),
 	extensionManagerClose: vi.fn(),
 	flowManagerClose: vi.fn(),
@@ -18,7 +19,12 @@ vi.mock('./app.js', () => ({ createManagedApp: mocks.createManagedApp }));
 vi.mock('./extensions/index.js', () => ({ closeExtensionManager: mocks.closeExtensionManager }));
 vi.mock('./flows.js', () => ({ closeFlowManager: mocks.closeFlowManager }));
 vi.mock('./runtime/close-runtime-resources.js', () => ({ closeRuntimeResources: mocks.closeRuntimeResources }));
+vi.mock('./services/index.js', () => ({ ItemsService: class ItemsService {} }));
 vi.mock('./utils/get-schema.js', () => ({ getSchema: mocks.getSchema }));
+
+vi.mock('./utils/request-context.js', () => ({
+	createAuthenticatedRequestContext: mocks.createAuthenticatedRequestContext,
+}));
 
 vi.mock('./services/server.js', () => ({
 	ServerService: class {
@@ -48,6 +54,13 @@ beforeEach(() => {
 	});
 
 	mocks.getSchema.mockResolvedValue({ collections: {}, relations: [] });
+
+	mocks.createAuthenticatedRequestContext.mockResolvedValue({
+		accountability: { admin: false, app: false, permissions: [], role: null, user: null },
+		database: {},
+		schema: { collections: {}, relations: [] },
+	});
+
 	mocks.health.mockImplementation(async () => ({ status: getLifecycleState() === 'online' ? 'ok' : 'error' }));
 });
 
@@ -76,6 +89,27 @@ describe('createEmbeddedApp', () => {
 		processOn.mockRestore();
 		createServer.mockRestore();
 		await handle.close();
+	});
+
+	it('creates Directus-owned request contexts only while online', async () => {
+		const request = {} as Request;
+		const handle = await createEmbeddedApp(options);
+
+		await expect(handle.createRequestContext(request)).resolves.toMatchObject({
+			accountability: { admin: false, app: false, permissions: [], role: null, user: null },
+			database: {},
+			getSchema: mocks.getSchema,
+			schema: { collections: {}, relations: [] },
+			services: { ItemsService: expect.any(Function) },
+		});
+
+		expect(mocks.createAuthenticatedRequestContext).toHaveBeenCalledWith(request);
+
+		const close = handle.close();
+
+		expect(() => handle.createRequestContext(request)).toThrow('closing or closed');
+		await close;
+		expect(() => handle.createRequestContext(request)).toThrow('closing or closed');
 	});
 
 	it('closes once, resets health, and supports recreation', async () => {

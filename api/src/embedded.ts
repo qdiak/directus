@@ -1,4 +1,6 @@
-import type { Application } from 'express';
+import type { Accountability, SchemaOverview } from '@directus/types';
+import type { Application, Request } from 'express';
+import type { Knex } from 'knex';
 import { isAbsolute, normalize } from 'node:path';
 import { createManagedApp, type ManagedApp } from './app.js';
 import { setLifecycleState } from './lifecycle.js';
@@ -7,6 +9,20 @@ import { claimEmbeddedRuntime } from './runtime/embedded-ownership.js';
 import { ServerService } from './services/server.js';
 import { createBootstrapError, throwOnBootstrapFailure } from './utils/bootstrap-failure.js';
 import { getSchema } from './utils/get-schema.js';
+import { createAuthenticatedRequestContext } from './utils/request-context.js';
+
+/**
+ * Directus-owned request context exposed to trusted embedded endpoint bridges.
+ * Accountability always comes from Directus request authentication and schema-
+ * derived permissions; consumers cannot inject an admin fallback.
+ */
+export type EmbeddedDirectusRequestContext = {
+	accountability: Accountability;
+	database: Knex;
+	getSchema: typeof getSchema;
+	schema: SchemaOverview;
+	services: typeof import('./services/index.js');
+};
 
 export type EmbeddedDirectusOptions = {
 	extensionsPath: string;
@@ -20,8 +36,13 @@ export type EmbeddedDirectusOptions = {
 
 export type DirectusHealth = Record<string, unknown>;
 
+/**
+ * Lifecycle-owned embedded Directus handle. Request contexts are accepted only
+ * while the runtime is online and are derived from Express-compatible requests.
+ */
 export type EmbeddedDirectusApp = {
 	middleware: Application;
+	createRequestContext(request: Request): Promise<EmbeddedDirectusRequestContext>;
 	health(): Promise<DirectusHealth>;
 	close(): Promise<void>;
 };
@@ -49,13 +70,22 @@ export async function createEmbeddedApp(options: EmbeddedDirectusOptions): Promi
 
 		const serverService = new ServerService({ schema: await getSchema() });
 		let closePromise: Promise<void> | undefined;
+		let acceptsRequestContexts = true;
 
 		setLifecycleState('online');
 
 		return {
 			middleware: managedApp.middleware,
+			createRequestContext: (request) => {
+				if (!acceptsRequestContexts) {
+					throw new Error('Embedded Directus runtime is closing or closed');
+				}
+
+				return createEmbeddedRequestContext(request);
+			},
 			health: () => serverService.health(),
 			close: () => {
+				acceptsRequestContexts = false;
 				closePromise ??= withTimeout(closeEmbeddedRuntime(lease.release, managedApp), EMBEDDED_CLOSE_TIMEOUT_MS);
 				return closePromise;
 			},
@@ -74,6 +104,17 @@ export async function createEmbeddedApp(options: EmbeddedDirectusOptions): Promi
 
 		throw bootstrapError;
 	}
+}
+
+async function createEmbeddedRequestContext(request: Request): Promise<EmbeddedDirectusRequestContext> {
+	const context = await createAuthenticatedRequestContext(request);
+	const services = await import('./services/index.js');
+
+	return {
+		...context,
+		getSchema,
+		services,
+	};
 }
 
 async function closeEmbeddedRuntime(
