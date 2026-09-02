@@ -5,6 +5,7 @@ export type {
 	EmbeddedDirectusApp,
 	EmbeddedDirectusOptions,
 	EmbeddedDirectusRequestContext,
+	EmbeddedProgrammaticHook,
 } from './embedded.js';
 export * from './services/index.js';
 export * from './utils/get-schema.js';

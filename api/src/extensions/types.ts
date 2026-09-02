@@ -12,4 +12,5 @@ export interface ExtensionManagerOptions {
 	watch: boolean;
 	failureStrategy: BootstrapFailureStrategy;
 	extensionsPath?: string;
+	programmaticHooks?: readonly { name: string; config: HookConfig }[];
 }

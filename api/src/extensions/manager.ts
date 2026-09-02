@@ -255,6 +255,39 @@ export class ExtensionManager {
 	}
 
 	/**
+	 * Registers trusted hook configs supplied by the embedding application through
+	 * the same handler/context lifecycle as filesystem hook extensions.
+	 */
+	private registerProgrammaticHooks(hooks: readonly { name: string; config: HookConfig }[]): void {
+		const names = new Set<string>();
+		const validatedHooks: { name: string; config: HookConfig }[] = [];
+
+		for (const hook of hooks) {
+			const name = hook?.name?.trim();
+			if (!name) throw new TypeError('Programmatic hook name must be a non-empty string');
+
+			if (typeof hook.config !== 'function') {
+				throw new TypeError(`Programmatic hook ${JSON.stringify(name)} must provide a hook config function`);
+			}
+
+			if (names.has(name) || this.extensions.some((extension) => extension.name === name)) {
+				throw new Error(`Duplicate programmatic hook name: ${JSON.stringify(name)}`);
+			}
+
+			names.add(name);
+			validatedHooks.push({ name, config: hook.config });
+		}
+
+		for (const hook of validatedHooks) {
+			const unregisterFunctions = this.registerHook(hook.config, hook.name);
+
+			this.unregisterFunctionMap.set(`programmatic-hook:${hook.name}`, async () => {
+				await Promise.all(unregisterFunctions.map((unregister) => unregister()));
+			});
+		}
+	}
+
+	/**
 	 * Installs an external extension from registry
 	 */
 	public async install(versionId: string, persistSettings?: () => Promise<void>): Promise<void> {
@@ -313,6 +346,7 @@ export class ExtensionManager {
 		}
 
 		await Promise.all([this.registerInternalOperations(), this.registerApiExtensions()]);
+		this.registerProgrammaticHooks(this.options.programmaticHooks ?? []);
 
 		if (env['SERVE_APP']) {
 			this.appExtensionsBundle = await this.generateExtensionBundle();
@@ -839,7 +873,7 @@ export class ExtensionManager {
 				emitter.onInit(event, handler);
 
 				unregisterFunctions.push(() => {
-					emitter.offInit(name, handler);
+					emitter.offInit(event, handler);
 				});
 			},
 			schedule: (cron: string, handler: ScheduleHandler) => {
@@ -890,14 +924,27 @@ export class ExtensionManager {
 			},
 		};
 
-		hookRegistrationCallback(hookRegistrationContext, {
-			services,
-			env,
-			database: getDatabase(),
-			emitter: this.localEmitter,
-			logger,
-			getSchema,
-		});
+		try {
+			hookRegistrationCallback(hookRegistrationContext, {
+				services,
+				env,
+				database: getDatabase(),
+				emitter: this.localEmitter,
+				logger,
+				getSchema,
+			});
+		} catch (error) {
+			const cleanupResults = unregisterFunctions.map((unregister) => {
+				try {
+					return unregister();
+				} catch (cleanupError) {
+					return Promise.reject(cleanupError);
+				}
+			});
+
+			void Promise.allSettled(cleanupResults);
+			throw error;
+		}
 
 		return unregisterFunctions;
 	}

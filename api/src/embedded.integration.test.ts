@@ -54,6 +54,7 @@ const [{ default: getDatabase }, { default: runMigrations }, { default: installD
 
 const { closeRuntimeResources } = await import('./runtime/close-runtime-resources.js');
 const { createEmbeddedApp } = await import('./embedded.js');
+const { default: emitter } = await import('./emitter.js');
 const { ExtensionManager } = await import('./extensions/manager.js');
 
 const internalOperations = vi
@@ -94,5 +95,34 @@ describe.sequential('embedded Directus SQLite runtime', () => {
 		const second = await createEmbeddedApp(options);
 		await expect(second.health()).resolves.toMatchObject({ status: expect.not.stringMatching(/^error$/) });
 		await second.close();
+	}, 60_000);
+
+	it('owns programmatic hook registration and teardown', async () => {
+		const filterHandler = vi.fn((payload: Record<string, unknown>) => ({ ...payload, registered: true }));
+
+		const handle = await createEmbeddedApp({
+			...options,
+			extensions: {
+				...options.extensions,
+				programmaticHooks: [
+					{
+						name: 'legacy-hook',
+						config: ({ filter }) => filter('quantum.legacy.integration', filterHandler),
+					},
+				],
+			},
+		});
+
+		await expect(emitter.emitFilter('quantum.legacy.integration', { value: 1 }, {})).resolves.toEqual({
+			registered: true,
+			value: 1,
+		});
+
+		expect(filterHandler).toHaveBeenCalledOnce();
+
+		await handle.close();
+
+		await expect(emitter.emitFilter('quantum.legacy.integration', { value: 2 }, {})).resolves.toEqual({ value: 2 });
+		expect(filterHandler).toHaveBeenCalledOnce();
 	}, 60_000);
 });

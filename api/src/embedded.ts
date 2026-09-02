@@ -1,4 +1,5 @@
 import type { Accountability, SchemaOverview } from '@directus/types';
+import type { HookConfig } from '@directus/extensions';
 import type { Application, Request } from 'express';
 import type { Knex } from 'knex';
 import { isAbsolute, normalize } from 'node:path';
@@ -24,9 +25,20 @@ export type EmbeddedDirectusRequestContext = {
 	services: typeof import('./services/index.js');
 };
 
+/**
+ * Trusted legacy hook registration owned by the embedding application. The
+ * config receives the same registration and runtime context as a filesystem
+ * hook extension, while Directus retains registration and teardown ownership.
+ */
+export type EmbeddedProgrammaticHook = Readonly<{
+	name: string;
+	config: HookConfig;
+}>;
+
 export type EmbeddedDirectusOptions = {
 	extensionsPath: string;
 	extensions: {
+		programmaticHooks?: readonly EmbeddedProgrammaticHook[];
 		schedule: false;
 		watch: false;
 	};
@@ -52,7 +64,14 @@ export const EMBEDDED_CLOSE_TIMEOUT_MS = 30_000;
 export async function createEmbeddedApp(options: EmbeddedDirectusOptions): Promise<EmbeddedDirectusApp> {
 	validateEmbeddedOptions(options);
 	const extensionsPath = normalize(options.extensionsPath);
-	const extensionOptions = { schedule: false, watch: false } as const;
+	const programmaticHooks = snapshotProgrammaticHooks(options.extensions.programmaticHooks);
+
+	const extensionOptions = Object.freeze({
+		...(programmaticHooks.length > 0 ? { programmaticHooks } : {}),
+		schedule: false,
+		watch: false,
+	});
+
 	const lease = claimEmbeddedRuntime();
 	setLifecycleState('starting');
 
@@ -151,6 +170,32 @@ function validateEmbeddedOptions(options: EmbeddedDirectusOptions): void {
 	if (options.websockets !== false || options.signalHandling !== false) {
 		throw new TypeError('Embedded Directus cannot own websockets or process signals');
 	}
+}
+
+function snapshotProgrammaticHooks(
+	hooks: readonly EmbeddedProgrammaticHook[] | undefined,
+): readonly EmbeddedProgrammaticHook[] {
+	if (hooks === undefined) return Object.freeze([]);
+	if (!Array.isArray(hooks)) throw new TypeError('Embedded Directus programmaticHooks must be an array');
+
+	const names = new Set<string>();
+
+	const snapshot = hooks.map((hook) => {
+		const name = hook?.name?.trim();
+
+		if (!name) throw new TypeError('Programmatic hook name must be a non-empty string');
+
+		if (typeof hook.config !== 'function') {
+			throw new TypeError(`Programmatic hook ${JSON.stringify(name)} must provide a hook config function`);
+		}
+
+		if (names.has(name)) throw new Error(`Duplicate programmatic hook name: ${JSON.stringify(name)}`);
+
+		names.add(name);
+		return Object.freeze({ name, config: hook.config });
+	});
+
+	return Object.freeze(snapshot);
 }
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {

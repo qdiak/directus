@@ -194,27 +194,71 @@ describe('createEmbeddedApp', () => {
 	});
 
 	it('snapshots normalized immutable extension ownership before awaiting bootstrap', async () => {
+		const config = vi.fn();
+		const hook = { name: ' legacy-hook ', config };
+		const programmaticHooks = [hook];
+
 		const mutableOptions = {
 			extensionsPath: '/app/../app/extensions',
-			extensions: { schedule: false, watch: false },
+			extensions: { programmaticHooks, schedule: false, watch: false },
 			websockets: false,
 			signalHandling: false,
 		};
 
 		const creation = createEmbeddedApp(mutableOptions);
 
+		hook.name = 'changed-hook';
+		programmaticHooks.push({ name: 'late-hook', config: vi.fn() });
 		mutableOptions.extensions.schedule = true;
 		mutableOptions.extensions.watch = true;
 
 		expect(mocks.createManagedApp).toHaveBeenCalledWith(
 			expect.objectContaining({
 				extensionsPath: '/app/extensions',
-				extensions: { schedule: false, watch: false },
+				extensions: {
+					programmaticHooks: [{ name: 'legacy-hook', config }],
+					schedule: false,
+					watch: false,
+				},
 			}),
 			expect.any(Function),
 		);
 
 		const handle = await creation;
+		await handle.close();
+	});
+
+	it.each([
+		{
+			label: 'an empty name',
+			programmaticHooks: [{ name: '  ', config: vi.fn() }],
+			error: 'non-empty string',
+		},
+		{
+			label: 'a non-function config',
+			programmaticHooks: [{ name: 'legacy-hook', config: null }],
+			error: 'hook config function',
+		},
+		{
+			label: 'duplicate normalized names',
+			programmaticHooks: [
+				{ name: 'legacy-hook', config: vi.fn() },
+				{ name: ' legacy-hook ', config: vi.fn() },
+			],
+			error: 'Duplicate programmatic hook name',
+		},
+	])('rejects $label before claiming runtime ownership', async ({ programmaticHooks, error }) => {
+		await expect(
+			createEmbeddedApp({
+				...options,
+				extensions: {
+					...options.extensions,
+					programmaticHooks,
+				},
+			} as typeof options),
+		).rejects.toThrow(error);
+
+		const handle = await createEmbeddedApp(options);
 		await handle.close();
 	});
 

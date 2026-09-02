@@ -49,6 +49,7 @@ try {
 	const api = await import('quantum_directus_api');
 
 	assert.equal(typeof api.createEmbeddedApp, 'function', 'package root must export createEmbeddedApp');
+	let authenticateFilterCalls = 0;
 
 	const [{ default: getDatabase }, { default: runMigrations }, { default: installDatabase }, runtime] =
 		await Promise.all([
@@ -66,7 +67,21 @@ try {
 
 	const options = {
 		extensionsPath,
-		extensions: { schedule: false, watch: false },
+		extensions: {
+			programmaticHooks: [
+				{
+					name: 'packed-authenticate-hook',
+					config: ({ filter }) => {
+						filter('authenticate', (accountability) => {
+							authenticateFilterCalls++;
+							return accountability;
+						});
+					},
+				},
+			],
+			schedule: false,
+			watch: false,
+		},
 		websockets: false,
 		signalHandling: false,
 	};
@@ -90,6 +105,7 @@ try {
 	assert.equal(typeof requestContext.database.select, 'function');
 	assert.equal(typeof requestContext.getSchema, 'function');
 	assert.equal(typeof requestContext.services.ItemsService, 'function');
+	assert.equal(authenticateFilterCalls, 1, 'programmatic authenticate filter must run through the packed artifact');
 
 	const firstClose = activeHandle.close();
 	const secondClose = activeHandle.close();
