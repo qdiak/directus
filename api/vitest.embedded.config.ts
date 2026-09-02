@@ -42,6 +42,7 @@ export default mergeConfig(
 				'src/utils/close-resources.test.ts',
 				'src/utils/get-schema.test.ts',
 				'src/utils/job-queue.test.ts',
+				'src/utils/request-context.test.ts',
 				'src/utils/validate-env.test.ts',
 				'src/websocket/controllers/hooks-lifecycle.test.ts',
 				'src/websocket/controllers/lifecycle.test.ts',
