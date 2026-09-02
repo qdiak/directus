@@ -1,6 +1,6 @@
 name: Publish Quantum packages
 
-# ÁTMENETI(quantum.5): ez a tag-gate a három előkészített .5 csomag egyszeri,
+# ÁTMENETI(quantum.6): ez a tag-gate a három előkészített .6 csomag egyszeri,
 # idempotensen újrafuttatható kiadását védi. A kiadás lezárása után törlendő,
 # vagy külön döntéssel általános, manifestből verziózott Quantum release flow-vá alakítandó.
 
@@ -11,7 +11,7 @@ on:
   # későbbi Quantum verzió nem örökli ezt a felhatalmazást.
   push:
     tags:
-      - quantum-publish/10.10.8-quantum.5
+      - quantum-publish/10.10.8-quantum.6
 permissions:
   actions: read
   contents: read
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   publish:
     name: Publish Quantum package trio
-    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.5'
+    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.6'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -38,13 +38,13 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: 6e293058668ff9af3c6953f73ba832f896e7e5ad
+          AUTHORIZED_PARENT_SHA: e72ddb867a21c06535e5e9bad175f838509d3a62
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
           changed_files="$(git diff --name-only "$AUTHORIZED_PARENT_SHA" "$actual_sha")"
 
-          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.5' ]; then
+          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.6' ]; then
             echo "Refusing unexpected release tag: $GITHUB_REF" >&2
             exit 1
           fi
@@ -126,7 +126,7 @@ jobs:
           npm_config_workspace_concurrency: '1'
 
       # A Quantum verziók prerelease-ek: a canary tag publikálhatóvá teszi az
-      # exact .5 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
+      # exact .6 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
       # A csomagonkénti ellenőrzés egy részben sikerült kiadás biztonságos
       # folytatását is lehetővé teszi ugyanarról a változatlan commitról.
       - name: Publish exact Quantum package trio
@@ -153,9 +153,9 @@ jobs:
               --tag canary
           }
 
-          publish_if_missing app quantum_directus_app 12.0.3-quantum.5
-          publish_if_missing api quantum_directus_api 19.0.3-quantum.5
-          publish_if_missing directus quantum_directus 10.10.8-quantum.5
+          publish_if_missing app quantum_directus_app 12.0.3-quantum.6
+          publish_if_missing api quantum_directus_api 19.0.3-quantum.6
+          publish_if_missing directus quantum_directus 10.10.8-quantum.6
 
       - name: Verify published versions and tags
         run: |
@@ -177,6 +177,6 @@ jobs:
             fi
           }
 
-          verify_release quantum_directus_app 12.0.3-quantum.5
-          verify_release quantum_directus_api 19.0.3-quantum.5
-          verify_release quantum_directus 10.10.8-quantum.5
+          verify_release quantum_directus_app 12.0.3-quantum.6
+          verify_release quantum_directus_api 19.0.3-quantum.6
+          verify_release quantum_directus 10.10.8-quantum.6
