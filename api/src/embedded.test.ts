@@ -1,4 +1,4 @@
-import type { Application } from 'express';
+import type { Application, Request } from 'express';
 import http from 'node:http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLifecycleState, setLifecycleState } from './lifecycle.js';
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	closeExtensionManager: vi.fn(),
 	closeFlowManager: vi.fn(),
 	closeRuntimeResources: vi.fn(),
+	createAuthenticatedRequestContext: vi.fn(),
 	createManagedApp: vi.fn(),
 	extensionManagerClose: vi.fn(),
 	flowManagerClose: vi.fn(),
@@ -18,7 +19,12 @@ vi.mock('./app.js', () => ({ createManagedApp: mocks.createManagedApp }));
 vi.mock('./extensions/index.js', () => ({ closeExtensionManager: mocks.closeExtensionManager }));
 vi.mock('./flows.js', () => ({ closeFlowManager: mocks.closeFlowManager }));
 vi.mock('./runtime/close-runtime-resources.js', () => ({ closeRuntimeResources: mocks.closeRuntimeResources }));
+vi.mock('./services/index.js', () => ({ ItemsService: class ItemsService {} }));
 vi.mock('./utils/get-schema.js', () => ({ getSchema: mocks.getSchema }));
+
+vi.mock('./utils/request-context.js', () => ({
+	createAuthenticatedRequestContext: mocks.createAuthenticatedRequestContext,
+}));
 
 vi.mock('./services/server.js', () => ({
 	ServerService: class {
@@ -48,6 +54,13 @@ beforeEach(() => {
 	});
 
 	mocks.getSchema.mockResolvedValue({ collections: {}, relations: [] });
+
+	mocks.createAuthenticatedRequestContext.mockResolvedValue({
+		accountability: { admin: false, app: false, permissions: [], role: null, user: null },
+		database: {},
+		schema: { collections: {}, relations: [] },
+	});
+
 	mocks.health.mockImplementation(async () => ({ status: getLifecycleState() === 'online' ? 'ok' : 'error' }));
 });
 
@@ -76,6 +89,27 @@ describe('createEmbeddedApp', () => {
 		processOn.mockRestore();
 		createServer.mockRestore();
 		await handle.close();
+	});
+
+	it('creates Directus-owned request contexts only while online', async () => {
+		const request = {} as Request;
+		const handle = await createEmbeddedApp(options);
+
+		await expect(handle.createRequestContext(request)).resolves.toMatchObject({
+			accountability: { admin: false, app: false, permissions: [], role: null, user: null },
+			database: {},
+			getSchema: mocks.getSchema,
+			schema: { collections: {}, relations: [] },
+			services: { ItemsService: expect.any(Function) },
+		});
+
+		expect(mocks.createAuthenticatedRequestContext).toHaveBeenCalledWith(request);
+
+		const close = handle.close();
+
+		expect(() => handle.createRequestContext(request)).toThrow('closing or closed');
+		await close;
+		expect(() => handle.createRequestContext(request)).toThrow('closing or closed');
 	});
 
 	it('closes once, resets health, and supports recreation', async () => {
@@ -160,27 +194,71 @@ describe('createEmbeddedApp', () => {
 	});
 
 	it('snapshots normalized immutable extension ownership before awaiting bootstrap', async () => {
+		const config = vi.fn();
+		const hook = { name: ' legacy-hook ', config };
+		const programmaticHooks = [hook];
+
 		const mutableOptions = {
 			extensionsPath: '/app/../app/extensions',
-			extensions: { schedule: false, watch: false },
+			extensions: { programmaticHooks, schedule: false, watch: false },
 			websockets: false,
 			signalHandling: false,
 		};
 
 		const creation = createEmbeddedApp(mutableOptions);
 
+		hook.name = 'changed-hook';
+		programmaticHooks.push({ name: 'late-hook', config: vi.fn() });
 		mutableOptions.extensions.schedule = true;
 		mutableOptions.extensions.watch = true;
 
 		expect(mocks.createManagedApp).toHaveBeenCalledWith(
 			expect.objectContaining({
 				extensionsPath: '/app/extensions',
-				extensions: { schedule: false, watch: false },
+				extensions: {
+					programmaticHooks: [{ name: 'legacy-hook', config }],
+					schedule: false,
+					watch: false,
+				},
 			}),
 			expect.any(Function),
 		);
 
 		const handle = await creation;
+		await handle.close();
+	});
+
+	it.each([
+		{
+			label: 'an empty name',
+			programmaticHooks: [{ name: '  ', config: vi.fn() }],
+			error: 'non-empty string',
+		},
+		{
+			label: 'a non-function config',
+			programmaticHooks: [{ name: 'legacy-hook', config: null }],
+			error: 'hook config function',
+		},
+		{
+			label: 'duplicate normalized names',
+			programmaticHooks: [
+				{ name: 'legacy-hook', config: vi.fn() },
+				{ name: ' legacy-hook ', config: vi.fn() },
+			],
+			error: 'Duplicate programmatic hook name',
+		},
+	])('rejects $label before claiming runtime ownership', async ({ programmaticHooks, error }) => {
+		await expect(
+			createEmbeddedApp({
+				...options,
+				extensions: {
+					...options.extensions,
+					programmaticHooks,
+				},
+			} as typeof options),
+		).rejects.toThrow(error);
+
+		const handle = await createEmbeddedApp(options);
 		await handle.close();
 	});
 

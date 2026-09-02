@@ -89,7 +89,7 @@ export type CreateAppOptions = {
 };
 
 export type ManagedAppOptions = CreateAppOptions & {
-	extensions?: Pick<ExtensionManagerOptions, 'schedule' | 'watch'>;
+	extensions?: Pick<ExtensionManagerOptions, 'programmaticHooks' | 'schedule' | 'watch'>;
 	flows?: {
 		schedule: boolean;
 	};

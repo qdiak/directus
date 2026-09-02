@@ -49,6 +49,7 @@ try {
 	const api = await import('quantum_directus_api');
 
 	assert.equal(typeof api.createEmbeddedApp, 'function', 'package root must export createEmbeddedApp');
+	let authenticateFilterCalls = 0;
 
 	const [{ default: getDatabase }, { default: runMigrations }, { default: installDatabase }, runtime] =
 		await Promise.all([
@@ -66,18 +67,50 @@ try {
 
 	const options = {
 		extensionsPath,
-		extensions: { schedule: false, watch: false },
+		extensions: {
+			programmaticHooks: [
+				{
+					name: 'packed-authenticate-hook',
+					config: ({ filter }) => {
+						filter('authenticate', (accountability) => {
+							authenticateFilterCalls++;
+							return accountability;
+						});
+					},
+				},
+			],
+			schedule: false,
+			watch: false,
+		},
 		websockets: false,
 		signalHandling: false,
 	};
 
 	activeHandle = await api.createEmbeddedApp(options);
 	assert.equal(typeof activeHandle.middleware, 'function');
+	assert.equal(typeof activeHandle.createRequestContext, 'function');
 	assert.notEqual((await activeHandle.health()).status, 'error');
+
+	const requestContext = await activeHandle.createRequestContext({
+		cookies: {},
+		get: () => undefined,
+		headers: {},
+		ip: '127.0.0.1',
+		query: {},
+	});
+
+	assert.equal(requestContext.accountability.admin, false);
+	assert.equal(requestContext.accountability.app, false);
+	assert.equal(requestContext.accountability.user, null);
+	assert.equal(typeof requestContext.database.select, 'function');
+	assert.equal(typeof requestContext.getSchema, 'function');
+	assert.equal(typeof requestContext.services.ItemsService, 'function');
+	assert.equal(authenticateFilterCalls, 1, 'programmatic authenticate filter must run through the packed artifact');
 
 	const firstClose = activeHandle.close();
 	const secondClose = activeHandle.close();
 	assert.equal(secondClose, firstClose, 'close must return the same in-flight promise');
+	assert.throws(() => activeHandle.createRequestContext({}), /closing or closed/);
 	await Promise.all([firstClose, secondClose]);
 	activeHandle = undefined;
 
