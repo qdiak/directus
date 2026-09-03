@@ -38,7 +38,7 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: 708dceec45b7444dbb328b56f9fa39b64336dc59
+          AUTHORIZED_PARENT_SHA: 5d0b581513a68f85292238fe600558f969de7c08
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
@@ -60,15 +60,15 @@ jobs:
             exit 1
           fi
 
-          echo "target_sha=$actual_sha" >> "$GITHUB_OUTPUT"
+          echo "package_source_sha=$AUTHORIZED_PARENT_SHA" >> "$GITHUB_OUTPUT"
 
       # A tag maga az explicit kiadási felhatalmazás, de nem helyettesíti a
-      # validációt: a csomagok csak a tag által mutatott SHA teljes Node/Bun
-      # embedded runtime gate-jének sikere után kerülhetnek a registrybe.
-      - name: Wait for the matching embedded runtime gate
+      # validációt. Az authorization bizonyítja, hogy a release commit kizárólag
+      # ezt a workflow-t módosítja, ezért a csomagforrás a szülő SHA-val azonos.
+      - name: Wait for the validated package source gate
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ steps.authorization.outputs.target_sha }}
+          TARGET_SHA: ${{ steps.authorization.outputs.package_source_sha }}
         run: |
           for attempt in $(seq 1 80); do
             run_json="$(gh run list \
@@ -125,14 +125,6 @@ jobs:
         env:
           npm_config_workspace_concurrency: '1'
 
-      - name: Install npm OIDC runtime
-        uses: actions/setup-node@v4
-        with:
-          # Az npm trusted publishing legalább Node 22.14-et és npm 11.5.1-et
-          # igényel; a Node 24 runner mindkettőt támogatottan biztosítja.
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
       # A Quantum verziók prerelease-ek: a canary tag publikálhatóvá teszi az
       # exact .6 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
       # A csomagonkénti ellenőrzés egy részben sikerült kiadás biztonságos
@@ -140,11 +132,11 @@ jobs:
       - name: Publish exact Quantum package trio
         env:
           NPM_CONFIG_PROVENANCE: true
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           publish_if_missing() {
-            package_dir="$1"
-            package_name="$2"
-            package_version="$3"
+            package_name="$1"
+            package_version="$2"
             package_spec="$package_name@$package_version"
             registry_url="https://registry.npmjs.org/$package_name/$package_version"
 
@@ -153,14 +145,14 @@ jobs:
               return
             fi
 
-            # A trusted publisher OIDC tokencseréjét az npm CLI végzi, ezért a
-            # pnpm 8 publish ezen a biztonsági határon nem használható.
-            # Az npm 11 a sikeres feltöltés után is adhat hibás exit kódot; csak
-            # a registry exact verziójának megjelenése számít sikernek.
-            if ! npm publish "$package_dir" \
+            # A repository normál release workflow-jával azonos, tokenes pnpm
+            # publish útvonalat használjuk, de csak a kijelölt csomagkönyvtárra.
+            # A registry exact verziójának megjelenése számít sikernek.
+            if ! pnpm --filter "$package_name" publish \
               --access=public \
+              --no-git-checks \
               --tag canary; then
-              echo "npm publish returned a non-zero exit code for $package_spec; verifying the registry"
+              echo "pnpm publish returned a non-zero exit code for $package_spec; verifying the registry"
             fi
 
             for attempt in $(seq 1 30); do
@@ -176,9 +168,9 @@ jobs:
             exit 1
           }
 
-          publish_if_missing ./app quantum_directus_app 12.0.3-quantum.6
-          publish_if_missing ./api quantum_directus_api 19.0.3-quantum.6
-          publish_if_missing ./directus quantum_directus 10.10.8-quantum.6
+          publish_if_missing quantum_directus_app 12.0.3-quantum.6
+          publish_if_missing quantum_directus_api 19.0.3-quantum.6
+          publish_if_missing quantum_directus 10.10.8-quantum.6
 
       - name: Verify published versions and tags
         run: |
