@@ -38,7 +38,7 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: 089108c286d75995af3f6746bd1b01979583144d
+          AUTHORIZED_PARENT_SHA: 6a404a4c16ad070047b8edb6925f906257cc4d03
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
@@ -105,12 +105,10 @@ jobs:
           echo "Timed out waiting for the embedded runtime gate for $TARGET_SHA" >&2
           exit 1
 
-      - name: Install Node.js
+      - name: Install build Node.js
         uses: actions/setup-node@v4
         with:
-          # Az npm trusted publishing legalább Node 22.14-et és npm 11.5.1-et
-          # igényel; a Node 24 runner mindkettőt támogatottan biztosítja.
-          node-version: 24
+          node-version: 18
           registry-url: https://registry.npmjs.org
 
       - name: Install pnpm
@@ -126,6 +124,14 @@ jobs:
         run: pnpm --filter quantum_directus_api... build
         env:
           npm_config_workspace_concurrency: '1'
+
+      - name: Install npm OIDC runtime
+        uses: actions/setup-node@v4
+        with:
+          # Az npm trusted publishing legalább Node 22.14-et és npm 11.5.1-et
+          # igényel; a Node 24 runner mindkettőt támogatottan biztosítja.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
 
       # A Quantum verziók prerelease-ek: a canary tag publikálhatóvá teszi az
       # exact .6 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
