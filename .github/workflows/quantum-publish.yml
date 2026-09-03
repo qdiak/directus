@@ -38,7 +38,7 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: e72ddb867a21c06535e5e9bad175f838509d3a62
+          AUTHORIZED_PARENT_SHA: 089108c286d75995af3f6746bd1b01979583144d
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
@@ -108,7 +108,9 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          # Az npm trusted publishing legalább Node 22.14-et és npm 11.5.1-et
+          # igényel; a Node 24 runner mindkettőt támogatottan biztosítja.
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Install pnpm
@@ -131,7 +133,6 @@ jobs:
       # folytatását is lehetővé teszi ugyanarról a változatlan commitról.
       - name: Publish exact Quantum package trio
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
         run: |
           publish_if_missing() {
@@ -145,11 +146,10 @@ jobs:
               return
             fi
 
-            # A pnpm 8 publish a csomagkönyvtárat pozicionális argumentumként
-            # várja; a `--dir <könyvtár> publish` alak npm EUSAGE hibát okoz.
-            pnpm publish "$package_dir" \
+            # A trusted publisher OIDC tokencseréjét az npm CLI végzi, ezért a
+            # pnpm 8 publish ezen a biztonsági határon nem használható.
+            npm publish "$package_dir" \
               --access=public \
-              --no-git-checks \
               --tag canary
           }
 
