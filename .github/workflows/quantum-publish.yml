@@ -38,7 +38,7 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: bb527f5e96c211ff2961d6b463a275cb3b423569
+          AUTHORIZED_PARENT_SHA: 708dceec45b7444dbb328b56f9fa39b64336dc59
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
@@ -146,17 +146,34 @@ jobs:
             package_name="$2"
             package_version="$3"
             package_spec="$package_name@$package_version"
+            registry_url="https://registry.npmjs.org/$package_name/$package_version"
 
-            if npm view "$package_spec" version >/dev/null 2>&1; then
+            if curl --silent --show-error --fail "$registry_url" >/dev/null 2>&1; then
               echo "publish=skipped package=$package_spec reason=already-exists"
               return
             fi
 
             # A trusted publisher OIDC tokencseréjét az npm CLI végzi, ezért a
             # pnpm 8 publish ezen a biztonsági határon nem használható.
-            npm publish "$package_dir" \
+            # Az npm 11 a sikeres feltöltés után is adhat hibás exit kódot; csak
+            # a registry exact verziójának megjelenése számít sikernek.
+            if ! npm publish "$package_dir" \
               --access=public \
-              --tag canary
+              --tag canary; then
+              echo "npm publish returned a non-zero exit code for $package_spec; verifying the registry"
+            fi
+
+            for attempt in $(seq 1 30); do
+              if curl --silent --show-error --fail "$registry_url" >/dev/null 2>&1; then
+                echo "publish=verified package=$package_spec"
+                return
+              fi
+
+              sleep 10
+            done
+
+            echo "Published package did not become available: $package_spec" >&2
+            exit 1
           }
 
           publish_if_missing ./app quantum_directus_app 12.0.3-quantum.6
@@ -169,8 +186,11 @@ jobs:
             package_name="$1"
             expected_version="$2"
             package_spec="$package_name@$expected_version"
-            actual_version="$(npm view "$package_spec" version)"
-            canary_version="$(npm view "$package_name" dist-tags.canary)"
+            package_metadata="$(curl --silent --show-error --fail \
+              "https://registry.npmjs.org/$package_name")"
+            actual_version="$(jq -r --arg version "$expected_version" \
+              '.versions[$version].version // empty' <<<"$package_metadata")"
+            canary_version="$(jq -r '."dist-tags".canary // empty' <<<"$package_metadata")"
 
             if [ "$actual_version" != "$expected_version" ]; then
               echo "Published version mismatch: expected=$expected_version actual=$actual_version" >&2
