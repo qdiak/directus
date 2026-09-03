@@ -38,7 +38,7 @@ jobs:
       - name: Verify release authorization and commit
         id: authorization
         env:
-          AUTHORIZED_PARENT_SHA: 6a404a4c16ad070047b8edb6925f906257cc4d03
+          AUTHORIZED_PARENT_SHA: bb527f5e96c211ff2961d6b463a275cb3b423569
         run: |
           actual_sha="$(git rev-parse HEAD)"
           actual_parent="$(git rev-parse HEAD^)"
@@ -159,9 +159,9 @@ jobs:
               --tag canary
           }
 
-          publish_if_missing app quantum_directus_app 12.0.3-quantum.6
-          publish_if_missing api quantum_directus_api 19.0.3-quantum.6
-          publish_if_missing directus quantum_directus 10.10.8-quantum.6
+          publish_if_missing ./app quantum_directus_app 12.0.3-quantum.6
+          publish_if_missing ./api quantum_directus_api 19.0.3-quantum.6
+          publish_if_missing ./directus quantum_directus 10.10.8-quantum.6
 
       - name: Verify published versions and tags
         run: |
