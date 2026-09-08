@@ -23,6 +23,7 @@ export default mergeConfig(
 				'src/extensions/manager-lifecycle.test.ts',
 				'src/extensions/manager-path.test.ts',
 				'src/flows-lifecycle.test.ts',
+				'src/flows-disabled.test.ts',
 				'src/flows-schedule.test.ts',
 				'src/index.test.ts',
 				'src/lifecycle.test.ts',

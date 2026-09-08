@@ -35,7 +35,10 @@ export type EmbeddedProgrammaticHook = Readonly<{
 	config: HookConfig;
 }>;
 
+/** Caller-owned startup options, snapshotted before any runtime initialization. */
 export type EmbeddedDirectusOptions = {
+	/** Flow execution defaults to enabled; false disables loading, registration and all execution. */
+	flows?: { enabled: boolean };
 	extensionsPath: string;
 	extensions: {
 		programmaticHooks?: readonly EmbeddedProgrammaticHook[];
@@ -66,6 +69,8 @@ export async function createEmbeddedApp(options: EmbeddedDirectusOptions): Promi
 	const extensionsPath = normalize(options.extensionsPath);
 	const programmaticHooks = snapshotProgrammaticHooks(options.extensions.programmaticHooks);
 
+	const flowOptions = Object.freeze({ enabled: options.flows?.enabled ?? true, schedule: false });
+
 	const extensionOptions = Object.freeze({
 		...(programmaticHooks.length > 0 ? { programmaticHooks } : {}),
 		schedule: false,
@@ -80,7 +85,7 @@ export async function createEmbeddedApp(options: EmbeddedDirectusOptions): Promi
 			{
 				extensionsPath,
 				extensions: extensionOptions,
-				flows: { schedule: false },
+				flows: flowOptions,
 				pressureLimiter: false,
 				telemetry: false,
 			},
@@ -154,6 +159,12 @@ function validateEmbeddedOptions(options: EmbeddedDirectusOptions): void {
 	if (!options || typeof options !== 'object') {
 		throw new TypeError('Embedded Directus options are required');
 	}
+
+	if (
+		options.flows !== undefined &&
+		(options.flows === null || typeof options.flows !== 'object' || typeof options.flows.enabled !== 'boolean')
+	)
+		throw new TypeError('Embedded Directus flows.enabled must be boolean');
 
 	if (typeof options.extensionsPath !== 'string' || options.extensionsPath.length === 0) {
 		throw new TypeError('Embedded Directus requires an explicit extensionsPath');

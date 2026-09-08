@@ -91,6 +91,7 @@ export type CreateAppOptions = {
 export type ManagedAppOptions = CreateAppOptions & {
 	extensions?: Pick<ExtensionManagerOptions, 'programmaticHooks' | 'schedule' | 'watch'>;
 	flows?: {
+		enabled?: boolean;
 		schedule: boolean;
 	};
 	pressureLimiter?: boolean;
@@ -159,6 +160,8 @@ export async function createManagedApp(
 	const extensionManager = getExtensionManager();
 	const flowManager = getFlowManager();
 
+	// A Flow policy az extension-regisztráció előtt végleges; utólag nem kapcsolható át.
+	flowManager.configure(options.flows);
 	await extensionManager.initialize({ ...options.extensions, ...extensionOptions, failureStrategy });
 	await flowManager.initialize(options.flows);
 

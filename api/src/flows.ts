@@ -58,12 +58,14 @@ interface FlowMessage {
 	type: 'reload';
 }
 
+/** Owns Flow registration and execution for one immutable runtime configuration. */
 export class FlowManager {
 	private isLoaded = false;
 	private closing = false;
 	private closed = false;
 	private closePromise: Promise<void> | undefined;
 	private scheduleEnabled: boolean | undefined;
+	private enabled: boolean | undefined;
 
 	private operations: Map<string, OperationHandler> = new Map();
 
@@ -74,12 +76,12 @@ export class FlowManager {
 	private reloadQueue: JobQueue;
 	private envs: Record<string, any>;
 	private activeExecutions = new Set<Promise<unknown>>();
-	private messenger = useBus();
+	private messenger: ReturnType<typeof useBus> | undefined;
 	private messengerSubscribed = false;
 
 	private handleFlowMessage = (event: unknown) => {
 		if (typeof event !== 'object' || event === null || !('type' in event) || event['type'] !== 'reload') return;
-		if (this.closing || this.closed) return;
+		if (this.enabled === false || this.closing || this.closed) return;
 
 		void this.reloadQueue
 			.enqueue(async () => {
@@ -100,18 +102,34 @@ export class FlowManager {
 		this.envs = env['FLOWS_ENV_ALLOW_LIST'] ? pick(env, toArray(env['FLOWS_ENV_ALLOW_LIST'] as string)) : {};
 	}
 
-	public async initialize(options: { schedule?: boolean } = {}): Promise<void> {
+	/** Fixes Flow policy before extensions may register operations; conflicting reconfiguration fails. */
+	public configure(options: { enabled?: boolean; schedule?: boolean } = {}): void {
+		if (this.closing || this.closed) throw new Error('Flow manager is closed');
+		if (options.enabled !== undefined && typeof options.enabled !== 'boolean')
+			throw new TypeError('Flow enabled must be boolean');
+		if (options.schedule !== undefined && typeof options.schedule !== 'boolean')
+			throw new TypeError('Flow schedule must be boolean');
+		const enabled = options.enabled ?? true;
+		const scheduleEnabled = options.schedule ?? true;
+		if (this.enabled !== undefined && this.enabled !== enabled)
+			throw new Error('Flow manager is already configured with a different enabled option');
+		if (this.scheduleEnabled !== undefined && this.scheduleEnabled !== scheduleEnabled)
+			throw new Error('Flow manager is already configured with a different schedule option');
+		this.enabled = enabled;
+		this.scheduleEnabled = scheduleEnabled;
+		// A tiltást az extensionök előtt rögzítjük: letiltott runtime-ban művelet sem regisztrálódhat.
+		if (!enabled) this.operations.clear();
+	}
+
+	/** Loads and subscribes only when the runtime allows Flows. */
+	public async initialize(options: { enabled?: boolean; schedule?: boolean } = {}): Promise<void> {
 		if (this.closing || this.closed) {
 			throw new Error('Flow manager is closed');
 		}
 
-		const scheduleEnabled = options.schedule ?? true;
-
-		if (this.scheduleEnabled !== undefined && this.scheduleEnabled !== scheduleEnabled) {
-			throw new Error('Flow manager is already configured with a different schedule option');
-		}
-
-		this.scheduleEnabled = scheduleEnabled;
+		this.configure(options);
+		if (this.enabled === false) return;
+		this.messenger ??= useBus();
 
 		if (!this.isLoaded) {
 			await this.load();
@@ -123,15 +141,21 @@ export class FlowManager {
 		}
 	}
 
+	/** Publishes a reload only for enabled runtimes; disabled runtimes remain inert. */
 	public async reload(): Promise<void> {
+		if (this.enabled === false) return;
+
 		if (this.closing || this.closed) {
 			throw new Error('Flow manager is closed');
 		}
 
-		await this.messenger.publish<FlowMessage>('flows', { type: 'reload' });
+		await (this.messenger ??= useBus()).publish<FlowMessage>('flows', { type: 'reload' });
 	}
 
+	/** Registers an extension operation only when Flow execution is allowed. */
 	public addOperation(id: string, operation: OperationHandler): void {
+		if (this.enabled === false) return;
+
 		if (this.closing || this.closed) {
 			throw new Error('Flow manager is closed');
 		}
@@ -143,7 +167,9 @@ export class FlowManager {
 		this.operations.delete(id);
 	}
 
+	/** Executes an operation-triggered Flow; disabled runtimes reject even direct calls. */
 	public async runOperationFlow(id: string, data: unknown, context: Record<string, unknown>): Promise<unknown> {
+		if (this.enabled === false) throw new ForbiddenError();
 		const logger = useLogger();
 
 		if (!(id in this.operationFlowHandlers)) {
@@ -156,11 +182,13 @@ export class FlowManager {
 		return handler(data, context);
 	}
 
+	/** Executes a webhook or manual Flow only when runtime policy permits it. */
 	public async runWebhookFlow(
 		id: string,
 		data: unknown,
 		context: Record<string, unknown>,
 	): Promise<{ result: unknown; cacheEnabled?: boolean }> {
+		if (this.enabled === false) throw new ForbiddenError();
 		const logger = useLogger();
 
 		if (!(id in this.webhookFlowHandlers)) {
@@ -174,6 +202,7 @@ export class FlowManager {
 	}
 
 	private async load(): Promise<void> {
+		if (this.enabled === false) return;
 		const logger = useLogger();
 
 		const flowsService = new FlowsService({ knex: getDatabase(), schema: await getSchema() });
@@ -369,7 +398,7 @@ export class FlowManager {
 
 		if (this.messengerSubscribed) {
 			try {
-				await this.messenger.unsubscribe('flows', this.handleFlowMessage);
+				await this.messenger?.unsubscribe('flows', this.handleFlowMessage);
 			} catch (error) {
 				errors.push(error);
 			} finally {
@@ -405,6 +434,8 @@ export class FlowManager {
 	}
 
 	private executeFlow(flow: Flow, data: unknown = null, context: Record<string, unknown> = {}): Promise<unknown> {
+		if (this.enabled === false) return Promise.reject(new ForbiddenError());
+
 		if (this.closing || this.closed) {
 			return Promise.reject(new Error('Flow manager is closed'));
 		}
@@ -425,6 +456,7 @@ export class FlowManager {
 		data: unknown = null,
 		context: Record<string, unknown> = {},
 	): Promise<unknown> {
+		if (this.enabled === false) throw new ForbiddenError();
 		const database = (context['database'] as Knex) ?? getDatabase();
 		const schema = (context['schema'] as SchemaOverview) ?? (await getSchema({ database }));
 

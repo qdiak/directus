@@ -34,6 +34,7 @@ const mockGetEndpointRouter = vi.fn().mockReturnValue(Router());
 const mockGetEmbeds = vi.fn().mockReturnValue({ head: '', body: '' });
 const mockExtensionManagerInitialize = vi.fn();
 const mockFlowManagerInitialize = vi.fn();
+const mockFlowManagerConfigure = vi.fn();
 
 vi.mock('./extensions', () => ({
 	getExtensionManager: vi.fn().mockImplementation(() => {
@@ -49,6 +50,7 @@ vi.mock('./flows', () => ({
 	getFlowManager: vi.fn().mockImplementation(() => {
 		return {
 			initialize: mockFlowManagerInitialize,
+			configure: mockFlowManagerConfigure,
 		};
 	}),
 }));
@@ -147,6 +149,11 @@ describe('createApp', async () => {
 		});
 
 		expect(mockFlowManagerInitialize).toHaveBeenCalledWith({ schedule: false });
+
+		expect(mockFlowManagerConfigure.mock.invocationCallOrder[0]).toBeLessThan(
+			mockExtensionManagerInitialize.mock.invocationCallOrder[0]!,
+		);
+
 		expect(initTelemetry).not.toHaveBeenCalled();
 	});
 
