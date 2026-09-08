@@ -11,8 +11,6 @@ import tar from 'tar';
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const apiDirectory = resolve(scriptsDirectory, '..');
 const repositoryRoot = resolve(apiDirectory, '..');
-const appDirectory = resolve(repositoryRoot, 'app');
-const directusDirectory = resolve(repositoryRoot, 'directus');
 const repositoryManifest = JSON.parse(await readFile(join(repositoryRoot, 'package.json')));
 const runtime = process.env['DIRECTUS_ARTIFACT_RUNTIME'] || process.execPath;
 const pnpm = process.env['DIRECTUS_ARTIFACT_PNPM'] || 'pnpm';
@@ -22,7 +20,7 @@ const killGrace = Number(process.env['DIRECTUS_ARTIFACT_KILL_GRACE_MS'] || 5_000
 
 const expectedVersions = {
 	quantum_directus_app: '12.0.3-quantum.6',
-	quantum_directus_api: '19.0.3-quantum.6',
+	quantum_directus_api: '19.0.3-quantum.7',
 	quantum_directus: '10.10.8-quantum.6',
 };
 
@@ -49,16 +47,10 @@ try {
 	const packDirectory = join(temporaryRoot, 'pack');
 	await mkdir(packDirectory);
 
-	// A három Quantum csomag egymásra hivatkozó, együtt publikált release-egység.
-	// A smoke ezért mindhármat a workspace-ből csomagolja, hogy egy még nem
-	// publikált verzió CI-ja se a registry korábbi siblingjeivel adjon hamis eredményt.
-	const appTarball = await packWorkspacePackage(appDirectory, 'quantum_directus_app', packDirectory);
-	const directusTarball = await packWorkspacePackage(directusDirectory, 'quantum_directus', packDirectory);
+	// A .7 csak API-kiadás. A változatlan CLI/app csomagokat a registryből
+	// telepítjük: helyi újracsomagolásuk hamisan .7-re írná át a .6 CLI függőségét.
 	const apiTarball = await packWorkspacePackage(apiDirectory, 'quantum_directus_api', packDirectory);
-
-	await Promise.all(
-		[appTarball, directusTarball, apiTarball].map((tarball) => assertTarballDoesNotContain(tarball, 'isolated-vm')),
-	);
+	await assertTarballDoesNotContain(apiTarball, 'isolated-vm');
 
 	const consumerDirectory = join(temporaryRoot, 'consumer');
 	await mkdir(consumerDirectory);
@@ -73,13 +65,6 @@ try {
 				packageManager: repositoryManifest.packageManager,
 				dependencies: {
 					quantum_directus_api: `file:${apiTarball}`,
-				},
-				pnpm: {
-					overrides: {
-						quantum_directus: `file:${directusTarball}`,
-						quantum_directus_api: `file:${apiTarball}`,
-						quantum_directus_app: `file:${appTarball}`,
-					},
 				},
 			},
 			null,
@@ -126,7 +111,7 @@ try {
 
 	assertPublishedDependency(packedApiManifest, 'quantum_directus_app', packedAppManifest.version);
 	assertPublishedDependency(packedApiManifest, 'quantum_directus', packedDirectusManifest.version);
-	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', packedApiManifest.version);
+	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', '19.0.3-quantum.6');
 	assertNoLocalDependencySpecifiers(packedApiManifest);
 	assertNoLocalDependencySpecifiers(packedAppManifest);
 	assertNoLocalDependencySpecifiers(packedDirectusManifest);
