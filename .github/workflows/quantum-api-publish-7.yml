@@ -4,7 +4,7 @@ name: Publish Quantum API 19.0.3-quantum.7
 on:
   push:
     tags:
-      - quantum-api-publish/19.0.3-quantum.7
+      - quantum-api-publish/19.0.3-quantum.7-r1
 permissions:
   contents: read
   id-token: write
@@ -20,13 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Verify exact release source and version
         env:
           SOURCE_SHA: fcd19b41eef07573cfd7faa2e723def71e9f1eca
         run: |
-          test "$GITHUB_REF" = 'refs/tags/quantum-api-publish/19.0.3-quantum.7'
-          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$GITHUB_REF" = 'refs/tags/quantum-api-publish/19.0.3-quantum.7-r1'
+          test "$(git rev-parse HEAD^)" = 4a475a01e5413baf5da61c4dd068017721b0426a
           test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = '.github/workflows/quantum-api-publish-7.yml'
           test "$(jq -r .version api/package.json)" = '19.0.3-quantum.7'
           test "$(jq -r .version app/package.json)" = '12.0.3-quantum.6'
