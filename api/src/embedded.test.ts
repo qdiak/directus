@@ -74,7 +74,7 @@ describe('createEmbeddedApp', () => {
 			{
 				extensionsPath: options.extensionsPath,
 				extensions: options.extensions,
-				flows: { schedule: false },
+				flows: { enabled: true, schedule: false },
 				pressureLimiter: false,
 				telemetry: false,
 			},
@@ -350,4 +350,27 @@ describe('createEmbeddedApp', () => {
 		await recreated.close();
 		vi.useRealTimers();
 	});
+});
+
+describe('embedded Flow policy', () => {
+	it('snapshots disabled options before asynchronous initialization', async () => {
+		const mutable = { ...options, flows: { enabled: false } };
+		const pending = createEmbeddedApp(mutable);
+		mutable.flows.enabled = true;
+		const handle = await pending;
+		const received = mocks.createManagedApp.mock.calls[0]![0].flows;
+		expect(received).toEqual({ enabled: false, schedule: false });
+		expect(Object.isFrozen(received)).toBe(true);
+		await handle.close();
+	});
+
+	it.each([null, {}, { enabled: undefined }, { enabled: 'false' }, false])(
+		'rejects invalid Flow policy %j before claiming the runtime',
+		async (flows) => {
+			await expect(createEmbeddedApp({ ...options, flows } as any)).rejects.toThrow(TypeError);
+			expect(mocks.createManagedApp).not.toHaveBeenCalled();
+			const handle = await createEmbeddedApp(options);
+			await handle.close();
+		},
+	);
 });
