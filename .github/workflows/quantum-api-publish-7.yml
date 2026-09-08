@@ -4,7 +4,7 @@ name: Publish Quantum API 19.0.3-quantum.7
 on:
   push:
     tags:
-      - quantum-api-publish/19.0.3-quantum.7-r1
+      - quantum-api-publish/19.0.3-quantum.7-r2
 permissions:
   contents: read
   id-token: write
@@ -25,8 +25,8 @@ jobs:
         env:
           SOURCE_SHA: fcd19b41eef07573cfd7faa2e723def71e9f1eca
         run: |
-          test "$GITHUB_REF" = 'refs/tags/quantum-api-publish/19.0.3-quantum.7-r1'
-          test "$(git rev-parse HEAD^)" = 4a475a01e5413baf5da61c4dd068017721b0426a
+          test "$GITHUB_REF" = 'refs/tags/quantum-api-publish/19.0.3-quantum.7-r2'
+          test "$(git rev-parse HEAD^)" = 08ee01803339534f3d08f6d2dc13cc37a7935cda
           test "$(git diff --name-only "$SOURCE_SHA" HEAD)" = '.github/workflows/quantum-api-publish-7.yml'
           test "$(jq -r .version api/package.json)" = '19.0.3-quantum.7'
           test "$(jq -r .version app/package.json)" = '12.0.3-quantum.6'
@@ -64,15 +64,23 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
         run: |
           archive=/tmp/quantum-api-release/quantum_directus_api-19.0.3-quantum.7.tgz
-          expected="sha512-$(openssl dgst -sha512 -binary "$archive" | openssl base64 -A)"
           registry=https://registry.npmjs.org/quantum_directus_api/19.0.3-quantum.7
           latest_before="$(npm view quantum_directus_api dist-tags.latest)"
-          if curl --silent --show-error --fail "$registry" > /tmp/quantum-api-published.json; then
-            test "$(jq -r .dist.integrity /tmp/quantum-api-published.json)" = "$expected"
-          else
+          if ! curl --silent --show-error --fail "$registry" > /tmp/quantum-api-published.json; then
             npm publish "$archive" --access public --tag canary
           fi
           curl --retry 6 --retry-all-errors --retry-delay 10 --silent --show-error --fail "$registry" > /tmp/quantum-api-published.json
-          test "$(jq -r .dist.integrity /tmp/quantum-api-published.json)" = "$expected"
+          curl --silent --show-error --fail "$(jq -r .dist.tarball /tmp/quantum-api-published.json)" > /tmp/quantum-api-registry.tgz
+          test "$(jq -r .dist.integrity /tmp/quantum-api-published.json)" = "sha512-$(openssl dgst -sha512 -binary /tmp/quantum-api-registry.tgz | openssl base64 -A)"
+          mkdir -p /tmp/quantum-api-local /tmp/quantum-api-remote
+          tar -xzf "$archive" -C /tmp/quantum-api-local
+          tar -xzf /tmp/quantum-api-registry.tgz -C /tmp/quantum-api-remote
+          # npm publish újraformázza a package.json-t; a tartalmat normalizálva,
+          # minden más csomagfájlt bájtra pontosan vetünk össze a builddel.
+          for directory in /tmp/quantum-api-local /tmp/quantum-api-remote; do
+            jq -S . "$directory/package/package.json" > "$directory/package/normalized.json"
+            mv "$directory/package/normalized.json" "$directory/package/package.json"
+          done
+          diff -qr /tmp/quantum-api-local /tmp/quantum-api-remote
           test "$(npm view quantum_directus_api dist-tags.latest)" = "$latest_before"
           test "$(npm view quantum_directus_api dist-tags.canary)" = 19.0.3-quantum.7
