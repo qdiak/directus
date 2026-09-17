@@ -345,7 +345,12 @@ export class ExtensionManager {
 			this.handleExtensionError({ error, reason: `Couldn't load extensions` });
 		}
 
-		await Promise.all([this.registerInternalOperations(), this.registerApiExtensions()]);
+		// Letiltott Flow runtime-ban a beépített operation-modulokat sem olvassuk be:
+		// a FlowManager úgysem regisztrálná őket, a bundle-elt fogyasztó artifactja
+		// pedig nem hordozza az operations könyvtárat, ezért a scan ENOENT-tel bukna.
+		const internalOperations = getFlowManager().isEnabled ? this.registerInternalOperations() : Promise.resolve();
+
+		await Promise.all([internalOperations, this.registerApiExtensions()]);
 		this.registerProgrammaticHooks(this.options.programmaticHooks ?? []);
 
 		if (env['SERVE_APP']) {

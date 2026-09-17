@@ -50,6 +50,18 @@ describe('disabled Flow runtime', () => {
 		expect(mocks.bus.unsubscribe).not.toHaveBeenCalled();
 	});
 
+	it('exposes the fixed policy through isEnabled and treats an unconfigured manager as enabled', async () => {
+		const unconfigured = new FlowManager();
+		const enabled = new FlowManager();
+		const disabled = new FlowManager();
+		enabled.configure({ enabled: true });
+		disabled.configure({ enabled: false });
+		expect(unconfigured.isEnabled).toBe(true);
+		expect(enabled.isEnabled).toBe(true);
+		expect(disabled.isEnabled).toBe(false);
+		await Promise.all([unconfigured.close(), enabled.close(), disabled.close()]);
+	});
+
 	it('rejects every execution entry even if a stale handler is injected', async () => {
 		const manager = new FlowManager();
 		manager.configure({ enabled: false });

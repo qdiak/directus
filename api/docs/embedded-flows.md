@@ -14,6 +14,13 @@ This policy does not edit database definitions or change another process. Hosts 
 routes when Flow administration is outside their scope. The Quantum V2 host always supplies `enabled: false` and exposes
 no switch to enable it. V1 remains on its independently patched `.2` package.
 
+`quantum_directus_api@19.0.3-quantum.8` closes a gap in the disabled policy: the extension manager no longer scans and
+imports the built-in `operations` modules when Flows are disabled. A disabled `FlowManager` discarded those
+registrations anyway, but the scan itself required the package's `operations` directory next to the manager, which a
+bundled consumer artifact does not ship, so an enabled embedded Directus failed to bootstrap with `ENOENT`. Enabled
+runtimes keep loading built-in operations exactly as before. `FlowManager.isEnabled` exposes the fixed policy for such
+callers; an unconfigured manager counts as enabled.
+
 Validation: `pnpm --filter quantum_directus_api test:embedded`, including `flows-disabled.test.ts`, `embedded.test.ts`,
 `app.test.ts` and the existing Flow scheduling/lifecycle and programmatic hook suites. Consumer validation uses all
 active trigger types in a disposable PostgreSQL-compatible database.
