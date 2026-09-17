@@ -19,7 +19,9 @@ imports the built-in `operations` modules when Flows are disabled. A disabled `F
 registrations anyway, but the scan itself required the package's `operations` directory next to the manager, which a
 bundled consumer artifact does not ship, so an enabled embedded Directus failed to bootstrap with `ENOENT`. Enabled
 runtimes keep loading built-in operations exactly as before. `FlowManager.isEnabled` exposes the fixed policy for such
-callers; an unconfigured manager counts as enabled.
+callers; an unconfigured manager counts as enabled. Starting with `.8`, API-only releases run through the generic
+`quantum-api-publish.yml` workflow: the `quantum-api-publish/<version>` tag names the version, the tagged commit must be
+in the `10.10.8-quantum` history, and no per-release workflow copy or manual source SHA is needed.
 
 Validation: `pnpm --filter quantum_directus_api test:embedded`, including `flows-disabled.test.ts`, `embedded.test.ts`,
 `app.test.ts` and the existing Flow scheduling/lifecycle and programmatic hook suites. Consumer validation uses all
