@@ -796,7 +796,15 @@ export class FieldsService {
 		}
 
 		if (alter) {
-			column.alter();
+			// knex `.alter()` alapértelmezetten (alterNullable: true) minden módosításnál előbb
+			// `DROP NOT NULL`-t ad ki, és a `SET NOT NULL`-t csak akkor teszi vissza, ha ugyanebben
+			// a builderben `notNullable()` is szerepel. A fenti ágak viszont szándékosan csak
+			// tényleges nullability-változásnál hívják a `notNullable()`/`nullable()` metódust, így
+			// egy változatlanul NOT NULL oszlop típus- vagy hosszmódosítása (pl. varchar(16) ->
+			// varchar(32) egy schema apply során) csendben nullable-lé tette az oszlopot. A
+			// nullability módosítását ezért csak akkor bízzuk knexre, ha az valóban változik.
+			const targetNullable = field.schema?.is_nullable !== false && !field.schema?.is_primary_key;
+			column.alter({ alterNullable: alter.is_nullable !== targetNullable });
 		}
 	}
 }
