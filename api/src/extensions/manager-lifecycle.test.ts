@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import emitter from '../emitter.js';
+import { closeFlowManager, getFlowManager } from '../flows.js';
 import { getExtensionManager } from './index.js';
 import { ExtensionManager } from './manager.js';
 
@@ -19,6 +20,14 @@ vi.mock('../bus/index.js', () => ({
 vi.mock('../database/index.js', () => ({ default: vi.fn() }));
 
 vi.mock('../utils/get-schema.js', () => ({ getSchema: vi.fn() }));
+
+// A load() valódi útját járatjuk, extension nélkül: így a beépített operation-scan
+// döntése látszik, DB és lemezen lévő extension nélkül.
+vi.mock('./lib/get-extensions.js', () => ({
+	getExtensions: vi.fn(async () => ({ local: new Map(), registry: new Map(), module: new Map() })),
+}));
+
+vi.mock('./lib/get-extensions-settings.js', () => ({ getExtensionsSettings: vi.fn(async () => []) }));
 
 vi.mock('../utils/schedule.js', () => ({
 	scheduleSynchronizedJob,
@@ -61,6 +70,46 @@ describe('ExtensionManager lifecycle', () => {
 		expect(second).not.toBe(first);
 
 		await second.close();
+	});
+
+	it('loads the built-in operations for an enabled Flow runtime', async () => {
+		const manager = new ExtensionManager();
+
+		// A vitest nem tudja feloldani az operation-modulok változó dinamikus importját,
+		// ezért csak a scan-döntést ellenőrizzük, a tényleges betöltést nem.
+		const registerInternalOperations = vi
+			.spyOn(manager as any, 'registerInternalOperations')
+			.mockResolvedValue(undefined);
+
+		try {
+			await manager.initialize({ schedule: false, watch: false, extensionsPath: '/app/extensions' });
+
+			expect(registerInternalOperations).toHaveBeenCalledOnce();
+			expect(manager.isLoaded).toBe(true);
+		} finally {
+			await manager.close();
+			await closeFlowManager();
+		}
+	});
+
+	it('skips the built-in operation scan when the Flow runtime is disabled', async () => {
+		// A bundle-elt fogyasztó artifactja nem hordozza az operations könyvtárat;
+		// letiltott Flow policy mellett a scan-nek el sem szabad indulnia.
+		getFlowManager().configure({ enabled: false });
+
+		const manager = new ExtensionManager();
+		const registerInternalOperations = vi.spyOn(manager as any, 'registerInternalOperations');
+
+		try {
+			await manager.initialize({ schedule: false, watch: false, extensionsPath: '/app/extensions' });
+
+			expect(registerInternalOperations).not.toHaveBeenCalled();
+			expect((getFlowManager() as any).operations.size).toBe(0);
+			expect(manager.isLoaded).toBe(true);
+		} finally {
+			await manager.close();
+			await closeFlowManager();
+		}
 	});
 
 	it('does not create extension schedule jobs when scheduling is disabled', async () => {

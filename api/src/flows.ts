@@ -121,6 +121,11 @@ export class FlowManager {
 		if (!enabled) this.operations.clear();
 	}
 
+	/** Runtime policy for callers that must skip Flow-only work; unconfigured managers count as enabled. */
+	public get isEnabled(): boolean {
+		return this.enabled !== false;
+	}
+
 	/** Loads and subscribes only when the runtime allows Flows. */
 	public async initialize(options: { enabled?: boolean; schedule?: boolean } = {}): Promise<void> {
 		if (this.closing || this.closed) {
