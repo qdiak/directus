@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import tar from 'tar';
+import { normalizePackageTarball } from './normalize-package-tarball.mjs';
 
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const apiDirectory = resolve(scriptsDirectory, '..');
@@ -244,7 +245,9 @@ async function packWorkspacePackage(packageDirectory, packageName, packDirectory
 		throw new Error(`Expected one ${packageName} tarball, received ${matches.length}`);
 	}
 
-	return join(packDirectory, matches[0]);
+	const tarball = join(packDirectory, matches[0]);
+	await normalizePackageTarball(tarball);
+	return tarball;
 }
 
 function assertPublishedDependency(manifest, dependencyName, expectedVersion) {

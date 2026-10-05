@@ -36,9 +36,10 @@ with auto purge turned off. Actual database bootstrap is covered separately by a
 After successful source CI and Quantum V1/V2 packed-consumer validation, push `quantum-publish/10.10.8-quantum.9` at the
 validated source SHA. The tag cannot use an upstream `v*` name. The workflow refuses a source without successful CI.
 
-Publication records previous latest tags and SHA512 tarball integrities in the `quantum-release-<sha>` artifact. All
-three immutable exact versions are published and compared with local tarball bytes before changing any latest tag. The
-internal publication tag is removed after immediate latest promotion; it is not a canary trial cycle. If promotion
+Packing normalizes manifest key order and archive timestamps so identical source builds can be retried with identical
+bytes. Publication records previous latest tags and SHA512 tarball integrities in the `quantum-release-<sha>` artifact.
+All three immutable exact versions are published and compared with local tarball bytes before changing any latest tag.
+The internal publication tag is removed after immediate latest promotion; it is not a canary trial cycle. If promotion
 fails, all previous latest tags are restored. An existing exact version must match bytes; a mismatch requires a new
 version.
 

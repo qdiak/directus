@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizePackageTarball } from './normalize-package-tarball.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const directory = join(root, 'release-artifacts');
@@ -29,6 +30,7 @@ for (const pkg of packages) {
 	previousLatest[pkg.name] = (await metadata(pkg.name))['dist-tags'].latest;
 	run('pnpm', ['pack', '--pack-destination', directory], join(root, pkg.folder));
 	pkg.tarball = join(directory, `${pkg.name}-${pkg.version}.tgz`);
+	await normalizePackageTarball(pkg.tarball);
 
 	pkg.integrity = `sha512-${createHash('sha512')
 		.update(await readFile(pkg.tarball))
@@ -55,7 +57,14 @@ for (const pkg of packages) {
 
 	if (!published) {
 		run('npm', ['publish', pkg.tarball, '--access=public', '--provenance', '--tag', temporaryTag], root);
-		published = await metadata(`${pkg.name}/${pkg.version}`);
+
+		for (let attempt = 0; attempt < 30; attempt++) {
+			published = await metadata(`${pkg.name}/${pkg.version}`, true);
+			if (published) break;
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+
+		if (!published) throw new Error(`Published version is not available: ${pkg.name}`);
 	}
 
 	if (published.version !== pkg.version || published.dist.integrity !== pkg.integrity) {
@@ -72,9 +81,18 @@ try {
 } catch (error) {
 	// Exact verziót nem írunk felül és nem unpublish-olunk. A tag-visszaállítás
 	// megszünteti a részleges latest előléptetést, az audit artifact megmarad.
+	const rollbackErrors = [];
+
 	for (const pkg of packages) {
-		run('npm', ['dist-tag', 'add', `${pkg.name}@${previousLatest[pkg.name]}`, 'latest'], root);
+		try {
+			run('npm', ['dist-tag', 'add', `${pkg.name}@${previousLatest[pkg.name]}`, 'latest'], root);
+		} catch (rollbackError) {
+			rollbackErrors.push(rollbackError);
+		}
 	}
+
+	if (rollbackErrors.length)
+		{throw new AggregateError([error, ...rollbackErrors], 'Latest promotion and rollback failed');}
 
 	throw error;
 }
@@ -88,13 +106,17 @@ for (const pkg of packages) {
 console.log('quantum-release=ok exact-trio=verified latest=promoted');
 
 function run(command, args, cwd) {
-	const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
+	const result = spawnSync(command, args, { cwd, stdio: 'inherit', timeout: 120_000 });
 	if (result.error) throw result.error;
 	if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed with ${result.status}`);
 }
 
 async function metadata(path, allowMissing = false) {
-	const response = await fetch(`https://registry.npmjs.org/${path}`, { headers: { 'cache-control': 'no-cache' } });
+	const response = await fetch(`https://registry.npmjs.org/${path}`, {
+		headers: { 'cache-control': 'no-cache' },
+		signal: AbortSignal.timeout(15000),
+	});
+
 	if (allowMissing && response.status === 404) return undefined;
 	if (!response.ok) throw new Error(`Registry lookup failed: ${path}: ${response.status}`);
 	return response.json();
