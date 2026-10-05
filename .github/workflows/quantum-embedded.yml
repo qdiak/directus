@@ -105,9 +105,10 @@ jobs:
         if: matrix.vendor != 'sqlite3'
         run: docker compose -f tests/blackbox/docker-compose.yml up ${{ matrix.vendor }} -d --quiet-pull --wait
 
-      - name: Start services
-        run:
-          docker compose -f tests/blackbox/docker-compose.yml up auth-saml redis minio minio-mc -d --quiet-pull --wait
+      # A célzott Flow suite nem használ SAML-t vagy S3-at. A teljes blackbox
+      # compose szolgáltatásait más suite-ok továbbra is külön indítják.
+      - name: Start Flow services
+        run: docker compose -f tests/blackbox/docker-compose.yml up redis -d --quiet-pull --wait
 
       - name: Run trusted Flow blackbox
         run: pnpm run test:blackbox -- --project db
