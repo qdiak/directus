@@ -47,4 +47,12 @@ describe('UsersService password policy', () => {
 		expect(error).toBeInstanceOf(Error);
 		expect(JSON.stringify(error)).not.toContain(rejectedPassword);
 	});
+
+	it.each(['g', 'y'])('resets the regex cursor for each password with the %s flag', async (flag) => {
+		vi.spyOn(SettingsService.prototype, 'readSingleton').mockResolvedValue({
+			auth_password_policy: `/^strong$/${flag}`,
+		});
+
+		await expect((service as any).checkPasswordPolicy(['strong', 'strong'])).resolves.toBeUndefined();
+	});
 });

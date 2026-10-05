@@ -19,9 +19,9 @@ const runtimeTimeout = Number(process.env['DIRECTUS_ARTIFACT_TIMEOUT_MS'] || 120
 const killGrace = Number(process.env['DIRECTUS_ARTIFACT_KILL_GRACE_MS'] || 5_000);
 
 const expectedVersions = {
-	quantum_directus_app: '12.0.3-quantum.6',
-	quantum_directus_api: '19.0.3-quantum.8',
-	quantum_directus: '10.10.8-quantum.6',
+	quantum_directus_app: '12.0.3-quantum.9',
+	quantum_directus_api: '19.0.3-quantum.9',
+	quantum_directus: '10.10.8-quantum.9',
 };
 
 if (typeof repositoryManifest.packageManager !== 'string') {
@@ -47,8 +47,10 @@ try {
 	const packDirectory = join(temporaryRoot, 'pack');
 	await mkdir(packDirectory);
 
-	// A .7 csak API-kiadás. A változatlan CLI/app csomagokat a registryből
-	// telepítjük: helyi újracsomagolásuk hamisan .7-re írná át a .6 CLI függőségét.
+	// A közös kiadást mindhárom helyi tarballból ellenőrizzük, hogy a CLI/API
+	// kölcsönös exact függősége sem egy korábbi registry verzióra oldódjon.
+	const appTarball = await packWorkspacePackage(join(repositoryRoot, 'app'), 'quantum_directus_app', packDirectory);
+	const cliTarball = await packWorkspacePackage(join(repositoryRoot, 'directus'), 'quantum_directus', packDirectory);
 	const apiTarball = await packWorkspacePackage(apiDirectory, 'quantum_directus_api', packDirectory);
 	await assertTarballDoesNotContain(apiTarball, 'isolated-vm');
 
@@ -63,8 +65,17 @@ try {
 				private: true,
 				type: 'module',
 				packageManager: repositoryManifest.packageManager,
+				pnpm: {
+					overrides: {
+						quantum_directus_api: `file:${apiTarball}`,
+						quantum_directus_app: `file:${appTarball}`,
+						quantum_directus: `file:${cliTarball}`,
+					},
+				},
 				dependencies: {
 					quantum_directus_api: `file:${apiTarball}`,
+					quantum_directus_app: `file:${appTarball}`,
+					quantum_directus: `file:${cliTarball}`,
 				},
 			},
 			null,
@@ -81,6 +92,15 @@ try {
 	await run(runtime, ['--version'], { cwd: consumerDirectory, timeout: 30_000 });
 	await run(runtime, ['smoke.mjs'], { cwd: consumerDirectory, timeout: runtimeTimeout });
 	await run(runtime, ['run-script.mjs'], { cwd: consumerDirectory, timeout: runtimeTimeout });
+
+	if (process.env['DIRECTUS_SCHEMA_SYNC_REDIS_PORT']) {
+		await copyFile(
+			join(scriptsDirectory, 'artifact-schema-sync-consumer.mjs'),
+			join(consumerDirectory, 'schema-sync.mjs'),
+		);
+
+		await run(runtime, ['schema-sync.mjs'], { cwd: consumerDirectory, timeout: runtimeTimeout });
+	}
 
 	const packedApiManifestPath = join(consumerDirectory, 'node_modules/quantum_directus_api/package.json');
 	const packedApiManifest = JSON.parse(await readFile(packedApiManifestPath));
@@ -111,7 +131,7 @@ try {
 
 	assertPublishedDependency(packedApiManifest, 'quantum_directus_app', packedAppManifest.version);
 	assertPublishedDependency(packedApiManifest, 'quantum_directus', packedDirectusManifest.version);
-	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', '19.0.3-quantum.6');
+	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', '19.0.3-quantum.9');
 	assertNoLocalDependencySpecifiers(packedApiManifest);
 	assertNoLocalDependencySpecifiers(packedAppManifest);
 	assertNoLocalDependencySpecifiers(packedDirectusManifest);
@@ -171,6 +191,10 @@ async function assertPackedEnvContract(requireFromPackedApi) {
 	try {
 		const { useEnv } = await import(pathToFileURL(requireFromPackedApi.resolve('@directus/env')).href);
 		const packedEnv = useEnv();
+
+		if (packedEnv['CACHE_SCHEMA_FREEZE_ENABLED'] !== true || packedEnv['CACHE_SCHEMA_SYNC_TIMEOUT'] !== 10000) {
+			throw new Error('Packed schema-cache environment defaults are missing');
+		}
 
 		if (packedEnv['MARKETPLACE_TRUST'] !== 'app') {
 			throw new Error(`Packed MARKETPLACE_TRUST default must be app; received ${packedEnv['MARKETPLACE_TRUST']}`);
