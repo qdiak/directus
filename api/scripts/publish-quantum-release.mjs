@@ -1,4 +1,4 @@
-/* eslint-env es6 */
+/* eslint-env es2021 */
 /* eslint-disable no-console */
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -91,8 +91,9 @@ try {
 		}
 	}
 
-	if (rollbackErrors.length)
-		{throw new AggregateError([error, ...rollbackErrors], 'Latest promotion and rollback failed');}
+	if (rollbackErrors.length) {
+		throw new AggregateError([error, ...rollbackErrors], 'Latest promotion and rollback failed');
+	}
 
 	throw error;
 }
