@@ -1,200 +1,65 @@
 name: Publish Quantum packages
 
-# ÁTMENETI(quantum.6): ez a tag-gate a három előkészített .6 csomag egyszeri,
-# idempotensen újrafuttatható kiadását védi. A kiadás lezárása után törlendő,
-# vagy külön döntéssel általános, manifestből verziózott Quantum release flow-vá alakítandó.
-
+# Ez a kiadási kapu kizárólag a CU-123vqc2c1m3 közös .9 latest kiadását engedi.
 on:
-  # A workflow_dispatch csak akkor hívható API-ból, ha ez a workflow már a
-  # repository default branchén is létezik. A fork release branchét ezért egy
-  # pontos, egyszer használható, nem upstream-v* tag aktiválja. Más tag vagy
-  # későbbi Quantum verzió nem örökli ezt a felhatalmazást.
   push:
     tags:
-      - quantum-publish/10.10.8-quantum.6
+      - quantum-publish/10.10.8-quantum.9
+      - quantum-publish/10.10.8-quantum.9-retry*
 permissions:
   actions: read
   contents: read
   id-token: write
-
 concurrency:
   group: publish-quantum-packages
   cancel-in-progress: false
-
 jobs:
   publish:
-    name: Publish Quantum package trio
-    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.6'
+    name: Publish verified Quantum package trio to latest
+    if:
+      github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.9' || startsWith(github.ref,
+      'refs/tags/quantum-publish/10.10.8-quantum.9-retry')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       NODE_OPTIONS: --max_old_space_size=6144
     steps:
-      - name: Checkout validated release commit
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Verify release authorization and commit
-        id: authorization
-        env:
-          AUTHORIZED_PARENT_SHA: 5d0b581513a68f85292238fe600558f969de7c08
-        run: |
-          actual_sha="$(git rev-parse HEAD)"
-          actual_parent="$(git rev-parse HEAD^)"
-          changed_files="$(git diff --name-only "$AUTHORIZED_PARENT_SHA" "$actual_sha")"
-
-          if [ "$GITHUB_REF" != 'refs/tags/quantum-publish/10.10.8-quantum.6' ]; then
-            echo "Refusing unexpected release tag: $GITHUB_REF" >&2
-            exit 1
-          fi
-
-          if [ "$actual_parent" != "$AUTHORIZED_PARENT_SHA" ]; then
-            echo "Refusing release commit with an unexpected parent: expected=$AUTHORIZED_PARENT_SHA actual=$actual_parent" >&2
-            exit 1
-          fi
-
-          if [ "$changed_files" != '.github/workflows/quantum-publish.yml' ]; then
-            echo "Refusing release commit with non-workflow changes:" >&2
-            printf '%s\n' "$changed_files" >&2
-            exit 1
-          fi
-
-          echo "package_source_sha=$AUTHORIZED_PARENT_SHA" >> "$GITHUB_OUTPUT"
-
-      # A tag maga az explicit kiadási felhatalmazás, de nem helyettesíti a
-      # validációt. Az authorization bizonyítja, hogy a release commit kizárólag
-      # ezt a workflow-t módosítja, ezért a csomagforrás a szülő SHA-val azonos.
-      - name: Wait for the validated package source gate
+      - uses: actions/checkout@v4
+      - name: Require successful source CI
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ steps.authorization.outputs.package_source_sha }}
         run: |
-          for attempt in $(seq 1 80); do
-            run_json="$(gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow quantum-embedded.yml \
-              --branch 10.10.8-quantum \
-              --commit "$TARGET_SHA" \
-              --event push \
-              --limit 1 \
-              --json databaseId,headSha,status,conclusion \
-              --jq '.[0]')"
-
-            if [ -z "$run_json" ]; then
-              sleep 15
-              continue
-            fi
-
-            status="$(jq -r '.status' <<<"$run_json")"
-            conclusion="$(jq -r '.conclusion' <<<"$run_json")"
-
-            if [ "$status" = 'completed' ]; then
-              if [ "$conclusion" != 'success' ]; then
-                echo "Matching embedded runtime gate failed: $run_json" >&2
-                exit 1
-              fi
-
-              echo "Matching embedded runtime gate passed: $run_json"
-              exit 0
-            fi
-
-            sleep 15
-          done
-
-          echo "Timed out waiting for the embedded runtime gate for $TARGET_SHA" >&2
-          exit 1
-
-      - name: Install build Node.js
-        uses: actions/setup-node@v4
+          source_sha="$(git rev-parse HEAD)"
+          if [ "$source_sha" != "$GITHUB_SHA" ]; then exit 1; fi
+          gate="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow quantum-embedded.yml \
+            --commit "$source_sha" --limit 30 --json headSha,status,conclusion \
+            --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].headSha // empty')"
+          if [ "$gate" != "$source_sha" ]; then
+            echo "No successful complete embedded runtime gate for $source_sha" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
         with:
           node-version: 18
           registry-url: https://registry.npmjs.org
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v3
         with:
           version: 8.15.4
           run_install: false
-
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Build Quantum package closure
+      - name: Build exact release closure
         run: pnpm --filter quantum_directus_api... build
         env:
           npm_config_workspace_concurrency: '1'
-
-      # A Quantum verziók prerelease-ek: a canary tag publikálhatóvá teszi az
-      # exact .6 csomagokat anélkül, hogy a korábbi .2 latest taget átírná.
-      # A csomagonkénti ellenőrzés egy részben sikerült kiadás biztonságos
-      # folytatását is lehetővé teszi ugyanarról a változatlan commitról.
-      - name: Publish exact Quantum package trio
+      - name: Publish verified exact trio and promote latest
+        run: node api/scripts/publish-quantum-release.mjs
         env:
-          NPM_CONFIG_PROVENANCE: true
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          publish_if_missing() {
-            package_name="$1"
-            package_version="$2"
-            package_spec="$package_name@$package_version"
-            registry_url="https://registry.npmjs.org/$package_name/$package_version"
-
-            if curl --silent --show-error --fail "$registry_url" >/dev/null 2>&1; then
-              echo "publish=skipped package=$package_spec reason=already-exists"
-              return
-            fi
-
-            # A repository normál release workflow-jával azonos, tokenes pnpm
-            # publish útvonalat használjuk, de csak a kijelölt csomagkönyvtárra.
-            # A registry exact verziójának megjelenése számít sikernek.
-            if ! pnpm --filter "$package_name" publish \
-              --access=public \
-              --no-git-checks \
-              --tag canary; then
-              echo "pnpm publish returned a non-zero exit code for $package_spec; verifying the registry"
-            fi
-
-            for attempt in $(seq 1 30); do
-              if curl --silent --show-error --fail "$registry_url" >/dev/null 2>&1; then
-                echo "publish=verified package=$package_spec"
-                return
-              fi
-
-              sleep 10
-            done
-
-            echo "Published package did not become available: $package_spec" >&2
-            exit 1
-          }
-
-          publish_if_missing quantum_directus_app 12.0.3-quantum.6
-          publish_if_missing quantum_directus_api 19.0.3-quantum.6
-          publish_if_missing quantum_directus 10.10.8-quantum.6
-
-      - name: Verify published versions and tags
-        run: |
-          verify_release() {
-            package_name="$1"
-            expected_version="$2"
-            package_spec="$package_name@$expected_version"
-            package_metadata="$(curl --silent --show-error --fail \
-              "https://registry.npmjs.org/$package_name")"
-            actual_version="$(jq -r --arg version "$expected_version" \
-              '.versions[$version].version // empty' <<<"$package_metadata")"
-            canary_version="$(jq -r '."dist-tags".canary // empty' <<<"$package_metadata")"
-
-            if [ "$actual_version" != "$expected_version" ]; then
-              echo "Published version mismatch: expected=$expected_version actual=$actual_version" >&2
-              exit 1
-            fi
-
-            if [ "$canary_version" != "$expected_version" ]; then
-              echo "Canary tag mismatch: expected=$expected_version actual=$canary_version" >&2
-              exit 1
-            fi
-          }
-
-          verify_release quantum_directus_app 12.0.3-quantum.6
-          verify_release quantum_directus_api 19.0.3-quantum.6
-          verify_release quantum_directus 10.10.8-quantum.6
+      - name: Preserve release and rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantum-release-${{ github.sha }}
+          path: release-artifacts/
+          if-no-files-found: warn

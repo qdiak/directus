@@ -6,10 +6,13 @@ export default mergeConfig(
 	defineConfig({
 		test: {
 			include: [
+				'scripts/normalize-package-tarball.test.ts',
+				'scripts/wait-for-registry.test.ts',
 				'src/app.test.ts',
 				'src/auth/drivers/openid-initialization.test.ts',
 				'src/bus/lib/use-bus.test.ts',
 				'src/cache-lifecycle.test.ts',
+				'src/schema-cache.test.ts',
 				'src/embedded.integration.test.ts',
 				'src/embedded.test.ts',
 				'src/emitter-lifecycle.test.ts',
@@ -42,6 +45,7 @@ export default mergeConfig(
 				'src/utils/bootstrap-failure.test.ts',
 				'src/utils/close-resources.test.ts',
 				'src/utils/get-schema.test.ts',
+				'src/utils/schema-sync.test.ts',
 				'src/utils/job-queue.test.ts',
 				'src/utils/request-context.test.ts',
 				'src/utils/validate-env.test.ts',

@@ -5,7 +5,7 @@ import { systemCollectionRows } from '@directus/system-data';
 import type { Filter, SchemaOverview } from '@directus/types';
 import { parseJSON, toArray } from '@directus/utils';
 import type { Knex } from 'knex';
-import { mapValues } from 'lodash-es';
+import { cloneDeep, mapValues } from 'lodash-es';
 import { useBus } from '../bus/index.js';
 import { getSchemaCache, setSchemaCache } from '../cache.js';
 import { ALIAS_TYPES } from '../constants.js';
@@ -19,6 +19,10 @@ import getLocalType from './get-local-type.js';
 
 const logger = useLogger();
 
+/**
+ * Resolves the API schema through the shared cache and a bounded cross-process build lock.
+ * Cached schemas are deeply frozen by default; bypassCache returns a fresh mutable schema.
+ */
 export async function getSchema(
 	options?: {
 		database?: Knex;
@@ -52,6 +56,12 @@ export async function getSchema(
 		throw new Error(`Failed to get Schema information: hit infinite loop`);
 	}
 
+	const syncTimeout = Number(env['CACHE_SCHEMA_SYNC_TIMEOUT'] ?? 10000);
+
+	if (!Number.isSafeInteger(syncTimeout) || syncTimeout <= 0) {
+		throw new Error('CACHE_SCHEMA_SYNC_TIMEOUT must be a positive integer in milliseconds');
+	}
+
 	const lock = useLock();
 	const bus = useBus();
 
@@ -69,40 +79,70 @@ export async function getSchema(
 		logger.trace('Schema cache is prepared in another process, waiting for result.');
 
 		return new Promise((resolve, reject) => {
-			const TIMEOUT = 10000;
+			const TIMEOUT = syncTimeout;
+			let settled = false;
 
 			const timeout: NodeJS.Timeout = setTimeout(() => {
 				logger.trace('Did not receive schema callback message in time. Pulling schema...');
-				callback().catch(reject);
+				retry();
 			}, TIMEOUT);
 
-			bus.subscribe(messageKey, callback);
+			function cleanup() {
+				clearTimeout(timeout);
+				void bus.unsubscribe(messageKey, callback).catch((error) => logger.warn(error));
+			}
 
-			async function callback() {
+			function retry() {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				getSchema(options, attempt + 1).then(resolve, reject);
+			}
+
+			async function callback(payload: unknown) {
+				const message = payload as { schema?: SchemaOverview | null } | undefined;
+				if (settled) return;
+				// A lock közös, a memóriacache processzenként külön van. A kész jelzés
+				// önmagában nem elég: a várakozó a kész sémát veszi át a busról.
+				// A régebbi { ready: true } jelzés is a véges retry útra kerül.
+				if (!message?.schema) return retry();
+				settled = true;
+				cleanup();
+
 				try {
-					if (timeout) clearTimeout(timeout);
-
-					const schema = await getSchema(options, attempt + 1);
-					resolve(schema);
+					await setSchemaCache(message.schema);
+					resolve(env['CACHE_SCHEMA_FREEZE_ENABLED'] === false ? cloneDeep(message.schema) : message.schema);
 				} catch (error) {
 					reject(error);
-				} finally {
-					bus.unsubscribe(messageKey, callback);
 				}
 			}
+
+			void bus.subscribe(messageKey, callback).then(() => {
+				// Timeout közben még folyamatban lehetett a Redis subscription.
+				if (settled) cleanup();
+			}, retry);
 		});
 	}
+
+	let schema: SchemaOverview | null = null;
 
 	try {
 		const database = options?.database || getDatabase();
 		const schemaInspector = createInspector(database);
 
-		const schema = await getDatabaseSchema(database, schemaInspector);
+		schema = await getDatabaseSchema(database, schemaInspector);
 		await setSchemaCache(schema);
-		return schema;
+		return env['CACHE_SCHEMA_FREEZE_ENABLED'] === false ? cloneDeep(schema) : schema;
 	} finally {
-		await lock.delete(lockKey);
-		bus.publish(messageKey, { ready: true });
+		// A publikálás hibája nem tarthatja bent a build lockot. A várakozók
+		// ilyen esetben timeout után új kört kezdenek.
+		try {
+			await bus.publish(messageKey, { schema });
+		} catch (error) {
+			logger.warn(error, 'Failed to publish schema to other processes');
+		} finally {
+			await lock.delete(lockKey);
+		}
 	}
 }
 

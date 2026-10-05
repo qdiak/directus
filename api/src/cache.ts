@@ -3,6 +3,7 @@ import type { SchemaOverview } from '@directus/types';
 import { getSimpleHash } from '@directus/utils';
 import type { Options } from 'keyv';
 import Keyv from 'keyv';
+import { cloneDeep } from 'lodash-es';
 import { useBus } from './bus/index.js';
 import { useLogger } from './logger.js';
 import { redisConfigAvailable } from './redis/index.js';
@@ -26,6 +27,11 @@ let lockCache: Keyv | null = null;
 let messengerSubscribed = false;
 let messenger: ReturnType<typeof useBus> | undefined;
 let messagingInitialization: Promise<void> | undefined;
+// A Keyv minden olvasáskor JSON-ból újraépítené a teljes sémát. A közös,
+// fagyasztott objektum megtartása megakadályozza a kérésenkénti memóriaugrást.
+let memorySchemaCache: { schema: SchemaOverview; hash: string } | undefined;
+let schemaCacheGeneration = 0;
+const deepFrozenSchemas = new WeakSet<object>();
 
 type Store = 'memory' | 'redis';
 
@@ -36,13 +42,18 @@ interface CacheMessage {
 const handleSchemaChanged = async (payload: unknown) => {
 	const opts = payload as CacheMessage | undefined;
 
-	if (cache && opts?.['autoPurgeCache'] !== false) {
+	memorySchemaCache = undefined;
+	schemaCacheGeneration++;
+	await localSchemaCache?.clear();
+
+	if (cache && env['CACHE_AUTO_PURGE'] && opts?.['autoPurgeCache'] !== false) {
 		await cache.clear();
 	}
 };
 
+/** Initializes the API-owned cache invalidation subscription; closeCache releases it. */
 export const initializeCache = async (): Promise<void> => {
-	if (!redisConfigAvailable() || env['CACHE_STORE'] !== 'memory' || !env['CACHE_AUTO_PURGE'] || messengerSubscribed) {
+	if (!redisConfigAvailable() || messengerSubscribed) {
 		return;
 	}
 
@@ -110,11 +121,14 @@ export async function flushCaches(forced?: boolean): Promise<void> {
 	await cache?.clear();
 }
 
+/** Invalidates the API system and schema caches and broadcasts schema invalidation. */
 export async function clearSystemCache(opts?: {
 	forced?: boolean | undefined;
 	autoPurgeCache?: false | undefined;
 }): Promise<void> {
 	const { systemCache, localSchemaCache, lockCache, sharedSchemaCache } = getCache();
+	memorySchemaCache = undefined;
+	schemaCacheGeneration++;
 
 	// Flush system cache when forced or when system cache lock not set
 	if (opts?.forced || !(await lockCache.get('system-cache-lock'))) {
@@ -128,6 +142,7 @@ export async function clearSystemCache(opts?: {
 	await useBus().publish<CacheMessage>('schemaChanged', { autoPurgeCache: opts?.autoPurgeCache });
 }
 
+/** Releases API-owned cache instances, subscriptions and the retained schema; supports restart. */
 export async function closeCache(): Promise<void> {
 	const errors: unknown[] = [];
 
@@ -148,6 +163,8 @@ export async function closeCache(): Promise<void> {
 	localSchemaCache = null;
 	sharedSchemaCache = null;
 	lockCache = null;
+	memorySchemaCache = undefined;
+	schemaCacheGeneration++;
 
 	if (messengerSubscribed && messenger) {
 		try {
@@ -182,26 +199,57 @@ export async function getSystemCache(key: string): Promise<Record<string, any>> 
 	return await getCacheValue(systemCache, key);
 }
 
+/** Stores the API schema by reference, deeply freezes it and publishes its shared validity hash. */
 export async function setSchemaCache(schema: SchemaOverview): Promise<void> {
 	const { localSchemaCache, sharedSchemaCache } = getCache();
+	const generation = schemaCacheGeneration;
 	const schemaHash = getSimpleHash(JSON.stringify(schema));
 
-	await sharedSchemaCache.set('hash', schemaHash);
+	freezeSchema(schema);
 
-	await localSchemaCache.set('schema', schema);
+	await sharedSchemaCache.set('hash', schemaHash);
 	await localSchemaCache.set('hash', schemaHash);
+	// Invalidálás közben folyamatban maradhat egy Redis write; az előző
+	// generáció befejeződése nem támaszthatja fel a processz régi sémáját.
+	if (generation === schemaCacheGeneration) memorySchemaCache = { schema, hash: schemaHash };
 }
 
+/** Returns the API's shared frozen schema, or a caller-owned clone when schema freezing is disabled. */
 export async function getSchemaCache(): Promise<SchemaOverview | undefined> {
 	const { localSchemaCache, sharedSchemaCache } = getCache();
+	const retained = memorySchemaCache;
+	if (!retained) return;
 
 	const sharedSchemaHash = await sharedSchemaCache.get('hash');
-	if (!sharedSchemaHash) return;
-
 	const localSchemaHash = await localSchemaCache.get('hash');
-	if (!localSchemaHash || localSchemaHash !== sharedSchemaHash) return;
 
-	return await localSchemaCache.get('schema');
+	if (
+		memorySchemaCache !== retained ||
+		!sharedSchemaHash ||
+		localSchemaHash !== sharedSchemaHash ||
+		retained.hash !== sharedSchemaHash
+	) {
+		if (memorySchemaCache === retained) memorySchemaCache = undefined;
+		return;
+	}
+
+	return env['CACHE_SCHEMA_FREEZE_ENABLED'] === false ? cloneDeep(retained.schema) : retained.schema;
+}
+
+/** Deeply freezes an API-owned schema once, including children of an already frozen root. */
+function freezeSchema(schema: SchemaOverview): void {
+	if (deepFrozenSchemas.has(schema)) return;
+	const visited = new WeakSet<object>();
+
+	function freeze(value: unknown): void {
+		if (value === null || typeof value !== 'object' || visited.has(value)) return;
+		visited.add(value);
+		for (const child of Object.values(value)) freeze(child);
+		Object.freeze(value);
+	}
+
+	freeze(schema);
+	deepFrozenSchemas.add(schema);
 }
 
 export async function setCacheValue(

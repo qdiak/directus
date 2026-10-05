@@ -19,6 +19,8 @@ export const TYPE_MAP: Record<string, EnvType> = {
 	CACHE_SKIP_ALLOWED: 'boolean',
 	CACHE_AUTO_PURGE_IGNORE_LIST: 'array',
 	CACHE_SCHEMA_MAX_ITERATIONS: 'number',
+	CACHE_SCHEMA_FREEZE_ENABLED: 'boolean',
+	CACHE_SCHEMA_SYNC_TIMEOUT: 'number',
 
 	IMPORT_IP_DENY_LIST: 'array',
 

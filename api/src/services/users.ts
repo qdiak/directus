@@ -88,6 +88,8 @@ export class UsersService extends ItemsService {
 		const regex = literalRegEx ? new RegExp(literalRegEx[1], literalRegEx[2]) : new RegExp(policyRegExString);
 
 		for (const password of passwords) {
+			regex.lastIndex = 0;
+
 			if (!regex.test(password)) {
 				throw new FailedValidationError(
 					joiValidationErrorItemToErrorExtensions({
