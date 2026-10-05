@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizePackageTarball } from './normalize-package-tarball.mjs';
+import { waitForRegistry } from './wait-for-registry.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const directory = join(root, 'release-artifacts');
@@ -27,7 +28,7 @@ for (const pkg of packages) {
 		throw new Error(`Unexpected manifest: ${pkg.folder}`);
 	}
 
-	previousLatest[pkg.name] = (await metadata(pkg.name))['dist-tags'].latest;
+	previousLatest[pkg.name] = (await metadata(`-/package/${pkg.name}/dist-tags`)).latest;
 	run('pnpm', ['pack', '--pack-destination', directory], join(root, pkg.folder));
 	pkg.tarball = join(directory, `${pkg.name}-${pkg.version}.tgz`);
 	await normalizePackageTarball(pkg.tarball);
@@ -67,14 +68,11 @@ for (const pkg of packages) {
 const registryDeadline = Date.now() + 10 * 60_000;
 
 for (const pkg of packages) {
-	let published;
-
-	do {
-		published = await metadata(`${pkg.name}/${pkg.version}`, true);
-		if (published) break;
-		if (Date.now() >= registryDeadline) throw new Error(`Published version is not available: ${pkg.name}`);
-		await new Promise((resolve) => setTimeout(resolve, 5000));
-	} while (!published);
+	const published = await waitForRegistry(() => metadata(`${pkg.name}/${pkg.version}`, true), Boolean, {
+		timeoutMs: Math.max(0, registryDeadline - Date.now()),
+		intervalMs: 5000,
+		errorMessage: `Published version is not available: ${pkg.name}`,
+	});
 
 	assertArtifact(pkg, published);
 }
@@ -88,8 +86,16 @@ function assertArtifact(pkg, published) {
 try {
 	for (const pkg of packages) run('npm', ['dist-tag', 'add', `${pkg.name}@${pkg.version}`, 'latest'], root);
 
+	// A packument a tagváltás után még régi latestet mutathat. A dedikált tag
+	// endpointot olvassuk, és véges propagációs idő után indítunk rollbacket.
+	const tagDeadline = Date.now() + 120_000;
+
 	for (const pkg of packages) {
-		if ((await metadata(pkg.name))['dist-tags'].latest !== pkg.version) throw new Error(`Latest mismatch: ${pkg.name}`);
+		await waitForRegistry(
+			() => metadata(`-/package/${pkg.name}/dist-tags`),
+			(tags) => tags.latest === pkg.version,
+			{ timeoutMs: Math.max(0, tagDeadline - Date.now()), errorMessage: `Latest mismatch: ${pkg.name}` },
+		);
 	}
 } catch (error) {
 	// Exact verziót nem írunk felül és nem unpublish-olunk. A tag-visszaállítás
@@ -112,7 +118,7 @@ try {
 }
 
 for (const pkg of packages) {
-	if ((await metadata(pkg.name))['dist-tags'][temporaryTag]) {
+	if ((await metadata(`-/package/${pkg.name}/dist-tags`))[temporaryTag]) {
 		run('npm', ['dist-tag', 'rm', pkg.name, temporaryTag], root);
 	}
 }

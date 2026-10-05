@@ -7,6 +7,7 @@ export default mergeConfig(
 		test: {
 			include: [
 				'scripts/normalize-package-tarball.test.ts',
+				'scripts/wait-for-registry.test.ts',
 				'src/app.test.ts',
 				'src/auth/drivers/openid-initialization.test.ts',
 				'src/bus/lib/use-bus.test.ts',
