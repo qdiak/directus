@@ -38,10 +38,10 @@ validated source SHA. The tag cannot use an upstream `v*` name. The workflow ref
 
 Packing normalizes manifest key order and archive timestamps so identical source builds can be retried with identical
 bytes. Publication records previous latest tags and SHA512 tarball integrities in the `quantum-release-<sha>` artifact.
-All three immutable exact versions are published and compared with local tarball bytes before changing any latest tag.
-The internal publication tag is removed after immediate latest promotion; it is not a canary trial cycle. If promotion
-fails, all previous latest tags are restored. An existing exact version must match bytes; a mismatch requires a new
-version.
+All three immutable exact versions are uploaded before waiting up to ten minutes for registry processing. They are
+compared with local tarball bytes before changing any latest tag. The internal publication tag is removed after
+immediate latest promotion; it is not a canary trial cycle. If promotion fails, all previous latest tags are restored.
+An existing exact version must match bytes; a mismatch requires a new version.
 
 For rollback, restore each previous latest tag using the release-proof artifact and revert the Quantum consumer's
 manifests and lockfile together. Restoring npm tags alone does not affect consumers pinned to exact `.9` versions. Do

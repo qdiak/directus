@@ -53,20 +53,33 @@ await writeFile(
 // A CLI/API körkörös exact függősége miatt előbb mindhárom immutable verzió
 // legyen elérhető. A belső tag nem canary próbakör: ugyanebben a jobban latest lesz.
 for (const pkg of packages) {
-	let published = await metadata(`${pkg.name}/${pkg.version}`, true);
+	const published = await metadata(`${pkg.name}/${pkg.version}`, true);
 
-	if (!published) {
+	if (published) {
+		assertArtifact(pkg, published);
+	} else {
 		run('npm', ['publish', pkg.tarball, '--access=public', '--provenance', '--tag', temporaryTag], root);
-
-		for (let attempt = 0; attempt < 30; attempt++) {
-			published = await metadata(`${pkg.name}/${pkg.version}`, true);
-			if (published) break;
-			await new Promise((resolve) => setTimeout(resolve, 1000));
-		}
-
-		if (!published) throw new Error(`Published version is not available: ${pkg.name}`);
 	}
+}
 
+// Az npm elfogadott publish után több percig is feldolgozhatja az artifactot.
+// Mindhárom feltöltést előbb indítjuk el; a latest kapu közös, véges határidőt kap.
+const registryDeadline = Date.now() + 10 * 60_000;
+
+for (const pkg of packages) {
+	let published;
+
+	do {
+		published = await metadata(`${pkg.name}/${pkg.version}`, true);
+		if (published) break;
+		if (Date.now() >= registryDeadline) throw new Error(`Published version is not available: ${pkg.name}`);
+		await new Promise((resolve) => setTimeout(resolve, 5000));
+	} while (!published);
+
+	assertArtifact(pkg, published);
+}
+
+function assertArtifact(pkg, published) {
 	if (published.version !== pkg.version || published.dist.integrity !== pkg.integrity) {
 		throw new Error(`Registry artifact differs from the validated tarball: ${pkg.name}@${pkg.version}`);
 	}

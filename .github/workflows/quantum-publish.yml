@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - quantum-publish/10.10.8-quantum.9
+      - quantum-publish/10.10.8-quantum.9-retry
 permissions:
   actions: read
   contents: read
@@ -15,7 +16,9 @@ concurrency:
 jobs:
   publish:
     name: Publish verified Quantum package trio to latest
-    if: github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.9'
+    if:
+      github.ref == 'refs/tags/quantum-publish/10.10.8-quantum.9' || github.ref ==
+      'refs/tags/quantum-publish/10.10.8-quantum.9-retry'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
