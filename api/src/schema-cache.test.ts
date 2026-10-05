@@ -94,9 +94,11 @@ describe('schema cache ownership', () => {
 	it('does not resurrect a schema when invalidation races with a Redis write', async () => {
 		const { sharedSchemaCache } = getCache();
 		let release!: () => void;
+
 		const pending = new Promise<void>((resolve) => {
 			release = resolve;
 		});
+
 		const originalSet = sharedSchemaCache.set.bind(sharedSchemaCache);
 
 		const write = vi.spyOn(sharedSchemaCache, 'set').mockImplementationOnce(async (key, value) => {
