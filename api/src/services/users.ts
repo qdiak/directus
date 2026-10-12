@@ -372,7 +372,11 @@ export class UsersService extends ItemsService {
 		return await this.deleteMany(keys, opts);
 	}
 
-	async inviteUser(email: string | string[], role: string, url: string | null, subject?: string | null): Promise<void> {
+	/**
+	 * UsersService creates or refreshes invitations and queues mail with a server-owned subject.
+	 * Mail delivery failures are logged without rolling back the invitation.
+	 */
+	async inviteUser(email: string | string[], role: string, url: string | null): Promise<void> {
 		const opts: MutationOptions = {};
 
 		try {
@@ -405,12 +409,11 @@ export class UsersService extends ItemsService {
 
 			// Send invite for new and already invited users
 			if (isEmpty(user) || user.status === 'invited') {
-				const subjectLine = subject ?? "You've been invited";
-
+				// A rendszerüzenet tárgya nem lehet kliensadat: így hiteles levéllel sem küldhető félrevezető üzenet.
 				mailService
 					.send({
 						to: user?.email ?? email,
-						subject: subjectLine,
+						subject: "You've been invited",
 						template: {
 							name: 'user-invitation',
 							data: {
@@ -449,7 +452,11 @@ export class UsersService extends ItemsService {
 		await service.updateOne(user.id, { password, status: 'active' });
 	}
 
-	async requestPasswordReset(email: string, url: string | null, subject?: string | null): Promise<void> {
+	/**
+	 * UsersService queues password reset mail with a server-owned subject and a one-day token.
+	 * The response is stalled to limit user enumeration; mail delivery failures are logged asynchronously.
+	 */
+	async requestPasswordReset(email: string, url: string | null): Promise<void> {
 		const STALL_TIME = 500;
 		const timeStart = performance.now();
 
@@ -477,12 +484,11 @@ export class UsersService extends ItemsService {
 			? new Url(url).setQuery('token', token).toString()
 			: new Url(env['PUBLIC_URL'] as string).addPath('admin', 'reset-password').setQuery('token', token).toString();
 
-		const subjectLine = subject ? subject : 'Password Reset Request';
-
+		// A közös service rögzíti a tárgyat, hogy REST-, GraphQL- és extension-hívás se kerülhesse meg a védelmet.
 		mailService
 			.send({
 				to: user.email,
-				subject: subjectLine,
+				subject: 'Password Reset Request',
 				template: {
 					name: 'password-reset-hu',
 					data: {
