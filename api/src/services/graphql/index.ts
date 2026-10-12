@@ -2421,7 +2421,7 @@ export class GraphQLService {
 					const service = new UsersService({ accountability, schema: this.schema });
 
 					try {
-						await service.requestPasswordReset(args['email'], args['reset_url'] || null, args['subject']);
+						await service.requestPasswordReset(args['email'], args['reset_url'] || null);
 					} catch (err: any) {
 						if (isDirectusError(err, ErrorCode.InvalidPayload)) {
 							throw err;
