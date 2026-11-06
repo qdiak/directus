@@ -2,8 +2,12 @@
 
 Task: https://app.clickup.com/t/123vqc2c1m3
 
-The common release consists of `quantum_directus_api@19.0.3-quantum.9`, `quantum_directus@10.10.8-quantum.9` and
-`quantum_directus_app@12.0.3-quantum.9`. Build from `10.10.8-quantum`; the default branch is an older upstream tree.
+The common release consists of `quantum_directus_api@19.0.3-quantum.10`, `quantum_directus@10.10.8-quantum.10` and
+`quantum_directus_app@12.0.3-quantum.10`. Build from `10.10.8-quantum`; the default branch is an older upstream tree.
+
+`.10` differs from `.9` only in extension scheduling (https://app.clickup.com/t/123vqc2epkn): cron hooks registered
+during the schedule-free CLI load start once the V1 app initializes with scheduling enabled. Embedded hosts keep
+`schedule: false` and create no schedule job.
 
 ## Runtime contract
 
@@ -33,8 +37,8 @@ Script, exact sibling dependencies, bundled env defaults and native dependency a
 independent processes and a synthetic schema builder; its real waiters exercise schema transport and local invalidation
 with auto purge turned off. Actual database bootstrap is covered separately by artifact and blackbox tests.
 
-After successful source CI and Quantum V1/V2 packed-consumer validation, push `quantum-publish/10.10.8-quantum.9` at the
-validated source SHA. The tag cannot use an upstream `v*` name. The workflow refuses a source without successful CI.
+After successful source CI and Quantum V1/V2 packed-consumer validation, push `quantum-publish/10.10.8-quantum.10` at
+the validated source SHA. The tag cannot use an upstream `v*` name. The workflow refuses a source without successful CI.
 
 Packing normalizes manifest key order and archive timestamps so identical source builds can be retried with identical
 bytes. Publication records previous latest tags and SHA512 tarball integrities in the `quantum-release-<sha>` artifact.
@@ -45,6 +49,6 @@ minutes for propagation. If promotion fails, all previous latest tags are restor
 bytes; a mismatch requires a new version.
 
 For rollback, restore each previous latest tag using the release-proof artifact and revert the Quantum consumer's
-manifests and lockfile together. Restoring npm tags alone does not affect consumers pinned to exact `.9` versions. Do
+manifests and lockfile together. Restoring npm tags alone does not affect consumers pinned to exact `.10` versions. Do
 not unpublish or overwrite exact versions. No tenant or production rollout is performed by this package release
 workflow.

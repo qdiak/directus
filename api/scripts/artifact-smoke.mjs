@@ -20,9 +20,9 @@ const runtimeTimeout = Number(process.env['DIRECTUS_ARTIFACT_TIMEOUT_MS'] || 120
 const killGrace = Number(process.env['DIRECTUS_ARTIFACT_KILL_GRACE_MS'] || 5_000);
 
 const expectedVersions = {
-	quantum_directus_app: '12.0.3-quantum.9',
-	quantum_directus_api: '19.0.3-quantum.9',
-	quantum_directus: '10.10.8-quantum.9',
+	quantum_directus_app: '12.0.3-quantum.10',
+	quantum_directus_api: '19.0.3-quantum.10',
+	quantum_directus: '10.10.8-quantum.10',
 };
 
 if (typeof repositoryManifest.packageManager !== 'string') {
@@ -132,7 +132,7 @@ try {
 
 	assertPublishedDependency(packedApiManifest, 'quantum_directus_app', packedAppManifest.version);
 	assertPublishedDependency(packedApiManifest, 'quantum_directus', packedDirectusManifest.version);
-	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', '19.0.3-quantum.9');
+	assertPublishedDependency(packedDirectusManifest, 'quantum_directus_api', '19.0.3-quantum.10');
 	assertNoLocalDependencySpecifiers(packedApiManifest);
 	assertNoLocalDependencySpecifiers(packedAppManifest);
 	assertNoLocalDependencySpecifiers(packedDirectusManifest);

@@ -10,12 +10,12 @@ import { waitForRegistry } from './wait-for-registry.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const directory = join(root, 'release-artifacts');
-const temporaryTag = 'quantum-release-9';
+const temporaryTag = 'quantum-release-10';
 
 const packages = [
-	{ folder: 'app', name: 'quantum_directus_app', version: '12.0.3-quantum.9' },
-	{ folder: 'api', name: 'quantum_directus_api', version: '19.0.3-quantum.9' },
-	{ folder: 'directus', name: 'quantum_directus', version: '10.10.8-quantum.9' },
+	{ folder: 'app', name: 'quantum_directus_app', version: '12.0.3-quantum.10' },
+	{ folder: 'api', name: 'quantum_directus_api', version: '19.0.3-quantum.10' },
+	{ folder: 'directus', name: 'quantum_directus', version: '10.10.8-quantum.10' },
 ];
 
 await mkdir(directory, { recursive: true });
