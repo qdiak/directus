@@ -127,9 +127,106 @@ describe('ExtensionManager lifecycle', () => {
 		);
 
 		expect(scheduleSynchronizedJob).not.toHaveBeenCalled();
-		expect(unregister).toEqual([]);
+		expect(unregister).toHaveLength(1);
 
 		await manager.close();
+
+		expect(scheduleSynchronizedJob).not.toHaveBeenCalled();
+	});
+
+	// Regresszió (CU-123vqc2epkn): a `directus start` CLI schedule nélkül tölti be az
+	// extensionöket, az app indulása pedig nem tölt újra. A cron hookoknak ekkor is futniuk kell.
+	it('starts schedule hooks registered during a schedule-free CLI load once scheduling is enabled', async () => {
+		scheduleSynchronizedJob.mockClear();
+
+		const manager = new ExtensionManager();
+		const handler = vi.fn();
+
+		const load = vi.spyOn(manager as any, 'load').mockImplementation(async () => {
+			const unregisters = (manager as any).registerHook(
+				({ schedule }: { schedule: (cron: string, handler: () => void) => void }) => schedule('*/5 * * * *', handler),
+				'test-hook',
+			);
+
+			(manager as any).unregisterFunctionMap.set('test-hook', async () => {
+				await Promise.all(unregisters.map((fn: () => Promise<void>) => fn()));
+			});
+
+			(manager as any).isLoaded = true;
+		});
+
+		await manager.initialize({ schedule: false, watch: false, extensionsPath: '/app/extensions' });
+
+		expect(scheduleSynchronizedJob).not.toHaveBeenCalled();
+
+		await manager.initialize({ schedule: true, watch: false, extensionsPath: '/app/extensions' });
+		await manager.initialize({ schedule: true, watch: false, extensionsPath: '/app/extensions' });
+
+		expect(load).toHaveBeenCalledOnce();
+		expect(scheduleSynchronizedJob).toHaveBeenCalledOnce();
+		expect(scheduleSynchronizedJob).toHaveBeenCalledWith('test-hook:0', '*/5 * * * *', expect.any(Function));
+
+		const [, , tick] = scheduleSynchronizedJob.mock.calls[0] as unknown as [string, string, () => Promise<void>];
+		await tick();
+
+		expect(handler).toHaveBeenCalledOnce();
+
+		const { stop } = scheduleSynchronizedJob.mock.results[0]!.value as { stop: ReturnType<typeof vi.fn> };
+
+		await manager.close();
+
+		expect(stop).toHaveBeenCalledOnce();
+	});
+
+	it('does not run a started schedule hook after scheduling is disabled again', async () => {
+		scheduleSynchronizedJob.mockClear();
+
+		const manager = new ExtensionManager();
+		const handler = vi.fn();
+
+		vi.spyOn(manager as any, 'load').mockImplementation(async () => {
+			(manager as any).registerHook(
+				({ schedule }: { schedule: (cron: string, handler: () => void) => void }) => schedule('* * * * *', handler),
+				'test-hook',
+			);
+
+			(manager as any).isLoaded = true;
+		});
+
+		await manager.initialize({ schedule: true, watch: false, extensionsPath: '/app/extensions' });
+		await manager.initialize({ schedule: false, watch: false, extensionsPath: '/app/extensions' });
+
+		const [, , tick] = scheduleSynchronizedJob.mock.calls[0] as unknown as [string, string, () => Promise<void>];
+		await tick();
+
+		expect(handler).not.toHaveBeenCalled();
+
+		await manager.close();
+	});
+
+	it('drops deferred schedule hooks on unload without ever starting them', async () => {
+		scheduleSynchronizedJob.mockClear();
+
+		const manager = new ExtensionManager();
+
+		vi.spyOn(manager as any, 'load').mockImplementation(async () => {
+			const unregisters = (manager as any).registerHook(
+				({ schedule }: { schedule: (cron: string, handler: () => void) => void }) => schedule('* * * * *', vi.fn()),
+				'test-hook',
+			);
+
+			(manager as any).unregisterFunctionMap.set('test-hook', async () => {
+				await Promise.all(unregisters.map((fn: () => Promise<void>) => fn()));
+			});
+
+			(manager as any).isLoaded = true;
+		});
+
+		await manager.initialize({ schedule: false, watch: false, extensionsPath: '/app/extensions' });
+		await manager.close();
+
+		expect((manager as any).deferredScheduleStarts.size).toBe(0);
+		expect(scheduleSynchronizedJob).not.toHaveBeenCalled();
 	});
 
 	it('waits for every extension unregister disposer when one fails', async () => {

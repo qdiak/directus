@@ -45,7 +45,7 @@ import getModuleDefault from '../utils/get-module-default.js';
 import { getSchema } from '../utils/get-schema.js';
 import { importFileUrl } from '../utils/import-file-url.js';
 import { JobQueue } from '../utils/job-queue.js';
-import { scheduleSynchronizedJob, validateCron } from '../utils/schedule.js';
+import { scheduleSynchronizedJob, validateCron, type ScheduledJob } from '../utils/schedule.js';
 import { getExtensionsPath } from './lib/get-extensions-path.js';
 import { getExtensionsSettings } from './lib/get-extensions-settings.js';
 import { getExtensions } from './lib/get-extensions.js';
@@ -110,6 +110,18 @@ export class ExtensionManager {
 	 * Callbacks to be able to unregister extensions
 	 */
 	private unregisterFunctionMap: Map<string, PromiseCallback> = new Map();
+
+	/**
+	 * Hook cron regisztrációk, amelyek `schedule: false` mellett érkeztek, és egy későbbi
+	 * `initialize({ schedule: true })` indítja el őket.
+	 *
+	 * A `directus start` CLI a parancs futása előtt `schedule: false`-szal tölti be az
+	 * extensionöket, az app indulásakor pedig már nem tölt újra. Ha a regisztráció ilyenkor
+	 * egyszerűen eldobódna, V1 alatt egyetlen schedule hook sem futna (1.28.1 regresszió,
+	 * CU-123vqc2epkn). Azért nem hozunk létre azonnal no-op jobot, mert az embedded host
+	 * policyja szerint `schedule: false` alatt timer és SynchronizedClock se jöjjön létre.
+	 */
+	private deferredScheduleStarts: Set<() => void> = new Set();
 
 	/**
 	 * A local-to-extensions scoped emitter that can be used to fire and listen to custom events
@@ -242,6 +254,10 @@ export class ExtensionManager {
 			if (this.extensions.length > 0) {
 				logger.info(`Loaded extensions: ${this.extensions.map((ext) => ext.name).join(', ')}`);
 			}
+		}
+
+		if (this.options.schedule) {
+			this.startDeferredSchedules();
 		}
 
 		if (this.options.watch && !wasWatcherInitialized) {
@@ -882,21 +898,35 @@ export class ExtensionManager {
 				});
 			},
 			schedule: (cron: string, handler: ScheduleHandler) => {
-				if (!this.options.schedule) return;
-
 				if (validateCron(cron)) {
-					const job = scheduleSynchronizedJob(`${name}:${scheduleIndex}`, cron, async () => {
-						try {
-							await handler();
-						} catch (error) {
-							logger.error(error);
-						}
-					});
+					const jobId = `${name}:${scheduleIndex}`;
+					let job: ScheduledJob | null = null;
+
+					const start = () => {
+						job = scheduleSynchronizedJob(jobId, cron, async () => {
+							// Upstream viselkedés: a tiltás a futás pillanatában érvényes, így egy
+							// későbbi initialize({ schedule: false }) a már futó jobot is elnémítja.
+							if (!this.options.schedule) return;
+
+							try {
+								await handler();
+							} catch (error) {
+								logger.error(error);
+							}
+						});
+					};
 
 					scheduleIndex++;
 
+					if (this.options.schedule) {
+						start();
+					} else {
+						this.deferredScheduleStarts.add(start);
+					}
+
 					unregisterFunctions.push(async () => {
-						await job.stop();
+						this.deferredScheduleStarts.delete(start);
+						await job?.stop();
 					});
 				} else {
 					this.handleExtensionError({ reason: `Couldn't register cron hook. Provided cron is invalid: ${cron}` });
@@ -997,6 +1027,20 @@ export class ExtensionManager {
 		};
 
 		return unregisterFunction;
+	}
+
+	/**
+	 * Starts the cron jobs that hooks registered while scheduling was disabled.
+	 * Idempotent: each deferred registration is started at most once.
+	 */
+	private startDeferredSchedules(): void {
+		const starts = Array.from(this.deferredScheduleStarts);
+
+		this.deferredScheduleStarts.clear();
+
+		for (const start of starts) {
+			start();
+		}
 	}
 
 	/**
